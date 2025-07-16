@@ -1,0 +1,20 @@
+[
+  {
+    "origin": [
+      "http://localhost:5000",
+      "https://flying-kids-hr-management.web.app",
+      "https://flying-kids-hr-management.firebaseapp.com"
+    ],
+    "method": [
+      "GET",
+      "POST",
+      "PUT",
+      "HEAD"
+    ],
+    "responseHeader": [
+      "Content-Type",
+      "Access-Control-Allow-Origin"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

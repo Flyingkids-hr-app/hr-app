@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flying Kids HR Management</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+</head>
+<body class="bg-gray-100">
+
+    <!-- App Loader -->
+    <div id="app-loader" class="flex justify-center items-center h-screen">
+        <p class="text-xl text-gray-600">Loading App...</p>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="hidden flex justify-center items-center h-screen">
+        <div class="text-center p-8 bg-white rounded-lg shadow-md">
+            <h1 class="text-2xl font-bold mb-4">HR Management</h1>
+            <p class="mb-6 text-gray-700">Please sign in to continue.</p>
+            <button id="login-button" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                Sign In with Google
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Application UI -->
+    <div id="main-app" class="hidden">
+        <div class="flex h-screen bg-gray-200">
+            <!-- Sidebar -->
+            <aside id="sidebar" class="w-64 bg-gray-800 text-white flex flex-col">
+                <div class="p-4 border-b border-gray-700">
+                    <h2 class="text-xl font-bold">Flying Kids HR</h2>
+                </div>
+                <nav id="sidebar-nav" class="flex-1 p-2 space-y-2"></nav>
+            </aside>
+
+            <!-- Main Content -->
+            <div class="flex-1 flex flex-col overflow-hidden">
+                <!-- Header -->
+                <header class="bg-white shadow p-4 flex justify-between items-center">
+                    <div>
+                        <h1 id="page-title" class="text-2xl font-semibold text-gray-800">Dashboard</h1>
+                    </div>
+                    <div id="user-menu" class="flex items-center">
+                        <span id="user-name" class="mr-4 text-gray-700"></span>
+                        <button id="signout-button" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                            Sign Out
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Content Area -->
+                <main id="content-area" class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
+                    <!-- Page content will be loaded here -->
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="edit-user-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-3xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3"><h3 class="text-2xl font-bold text-gray-900">Edit User</h3><button id="modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button></div>
+            <div class="mt-5 max-h-[80vh] overflow-y-auto pr-2">
+                <form id="edit-user-form">
+                    <input type="hidden" id="edit-user-id">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div><label class="block text-sm font-medium text-gray-700">Name</label><p id="edit-name" class="mt-1 text-lg text-gray-900"></p></div>
+                        <div><label class="block text-sm font-medium text-gray-700">Email</label><p id="edit-email" class="mt-1 text-lg text-gray-900"></p></div>
+                        <div><label for="edit-department" class="block text-sm font-medium text-gray-700">Primary Department</label><select id="edit-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select></div>
+                        <div><label for="edit-status" class="block text-sm font-medium text-gray-700">Status</label><select id="edit-status" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+                        <div class="md:col-span-2"><label class="block text-sm font-medium text-gray-700">Roles</label><div id="edit-roles" class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"></div></div>
+                        <div class="md:col-span-2"><label class="block text-sm font-medium text-gray-700">Managed Departments</label><div id="edit-managed-departments" class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"></div></div>
+                        <div class="md:col-span-2 border-t pt-4 mt-2"><label class="block text-sm font-medium text-gray-700 mb-2">Leave Quotas for <span id="quota-year"></span></label><div id="edit-leave-quotas-container" class="grid grid-cols-2 gap-4"></div></div>
+                        
+                        <!-- Manage Employee Documents -->
+                        <div class="md:col-span-2 border-t pt-4 mt-4">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-3">Manage Employee Documents</h4>
+                            <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                                <h5 class="font-medium text-gray-700 mb-2">Upload New Document</h5>
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div class="sm:col-span-1">
+                                        <label for="doc-category" class="block text-sm font-medium text-gray-700">Category</label>
+                                        <select id="doc-category" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                            <option>Employment</option>
+                                            <option>Compensation</option>
+                                            <option>Performance</option>
+                                            <option>Certificate</option>
+                                            <option>Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="sm:col-span-2">
+                                        <label for="doc-upload" class="block text-sm font-medium text-gray-700">Select File</label>
+                                        <input type="file" id="doc-upload" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                                    </div>
+                                </div>
+                                <div class="mt-3 text-right">
+                                    <button id="upload-doc-button" type="button" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Upload</button>
+                                </div>
+                                <p id="employee-doc-upload-progress" class="text-sm text-gray-500 mt-2"></p>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-700 mb-2">Existing Documents</h5>
+                                <div id="existing-docs-list" class="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-2">
+                                    <p class="text-gray-500 text-center">No documents found.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                        <button id="modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create User Modal -->
+    <div id="create-user-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3"><h3 class="text-2xl font-bold text-gray-900">Create New User</h3><button id="create-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button></div>
+            <div class="mt-5"><form id="create-user-form"><div class="grid grid-cols-1 gap-6"><div><label for="create-name" class="block text-sm font-medium text-gray-700">Full Name</label><input type="text" id="create-name" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></div><div><label for="create-email" class="block text-sm font-medium text-gray-700">Email Address</label><input type="email" id="create-email" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></div></div><div class="mt-6 flex justify-end space-x-3 border-t pt-4"><button id="create-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button><button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Create User</button></div></form></div>
+        </div>
+    </div>
+
+    <!-- Leave/OT Request Modal -->
+<div id="request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+    <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-center border-b pb-3"><h3 class="text-2xl font-bold text-gray-900">New Leave / OT Request</h3><button id="request-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button></div>
+        <div class="mt-5"><form id="request-form"><div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div><label for="request-type" class="block text-sm font-medium text-gray-700">Request Type</label><select id="request-type" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select><p id="leave-balance-display" class="text-xs text-gray-500 mt-1"></p></div>
+            <div><label for="request-department" class="block text-sm font-medium text-gray-700">Department (for OT)</label><select id="request-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" disabled></select></div>
+            
+            <div><label for="request-start-date" class="block text-sm font-medium text-gray-700">Start Date & Time</label><input type="datetime-local" id="request-start-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></div>
+            <div><label for="request-end-date" class="block text-sm font-medium text-gray-700">End Date & Time</label><input type="datetime-local" id="request-end-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></div>
+            
+            <div class="md:col-span-2"><label for="request-hours" class="block text-sm font-medium text-gray-700">Total Hours</label><input type="number" id="request-hours" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="e.g., 8"></div>
+            <div class="md:col-span-2">
+                <label for="request-document" class="block text-sm font-medium text-gray-700">Upload Document (Optional)</label>
+                <input type="file" id="request-document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                <p id="request-upload-progress" class="text-sm text-gray-500 mt-1"></p>
+            </div>
+            <div class="md:col-span-2"><label for="request-reason" class="block text-sm font-medium text-gray-700">Reason</label><textarea id="request-reason" rows="3" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea></div>
+        </div><div class="mt-6 flex justify-end space-x-3 border-t pt-4"><button id="request-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button><button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Submit Request</button></div></form></div>
+    </div>
+</div>
+    <!-- Support Request Modal -->
+    <div id="support-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3"><h3 class="text-2xl font-bold text-gray-900">New Support Request</h3><button id="support-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button></div>
+            <div class="mt-5"><form id="support-form"><div class="grid grid-cols-1 gap-6"><div><label for="support-assign-to" class="block text-sm font-medium text-gray-700">Assign To</label><select id="support-assign-to" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select></div><div><label for="support-subject" class="block text-sm font-medium text-gray-700">Subject</label><input type="text" id="support-subject" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="e.g., Broken office chair"></div><div><label for="support-description" class="block text-sm font-medium text-gray-700">Description</label><textarea id="support-description" rows="4" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea></div></div><div class="mt-6 flex justify-end space-x-3 border-t pt-4"><button id="support-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button><button type="submit" class="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700">Submit Request</button></div></form></div>
+        </div>
+    </div>
+    
+    <!-- View Support Request Modal -->
+    <div id="view-support-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-2xl font-bold text-gray-900">Support Ticket Details</h3>
+                <button id="view-support-modal-close-button" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times fa-lg"></i>
+                </button>
+            </div>
+            <div class="mt-5">
+                <form id="view-support-form">
+                    <input type="hidden" id="view-support-id">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Subject</label>
+                            <p id="view-support-subject" class="mt-1 text-lg text-gray-900 bg-gray-50 p-2 rounded-md"></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Submitted By</label>
+                            <p id="view-support-requester" class="mt-1 text-sm text-gray-600"></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Description</label>
+                            <p id="view-support-description" class="mt-1 text-sm text-gray-800 bg-gray-50 p-2 rounded-md h-24 overflow-y-auto"></p>
+                        </div>
+                        <div>
+                            <label for="view-support-status" class="block text-sm font-medium text-gray-700">Update Status</label>
+                            <select id="view-support-status" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                <option value="Open">Open</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Closed">Closed</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                        <button id="view-support-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Save Status</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Claim Request Modal -->
+    <div id="claim-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-2xl font-bold text-gray-900">New Expense Claim</h3>
+                <button id="claim-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+            </div>
+            <div class="mt-5">
+                <form id="claim-form">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label for="claim-type" class="block text-sm font-medium text-gray-700">Claim Type</label>
+                            <select id="claim-type" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select>
+                        </div>
+                        <div>
+                            <label for="claim-date" class="block text-sm font-medium text-gray-700">Date of Expense</label>
+                            <input type="date" id="claim-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="claim-amount" class="block text-sm font-medium text-gray-700">Amount</label>
+                            <input type="number" id="claim-amount" step="0.01" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="e.g., 25.50">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="claim-description" class="block text-sm font-medium text-gray-700">Description</label>
+                            <textarea id="claim-description" rows="3" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="claim-receipt" class="block text-sm font-medium text-gray-700">Upload Receipt</label>
+                            <input type="file" id="claim-receipt" required class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                            <p id="upload-progress" class="text-sm text-gray-500 mt-1"></p>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                        <button id="claim-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700">Submit Claim</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Purchase Request Modal -->
+    <div id="purchase-request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-2xl font-bold text-gray-900">New Purchase Request</h3>
+                <button id="purchase-request-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+            </div>
+            <div class="mt-5">
+                <form id="purchase-request-form">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="md:col-span-2">
+                            <label for="purchase-item" class="block text-sm font-medium text-gray-700">Item / Service to Purchase</label>
+                            <input type="text" id="purchase-item" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="e.g., New Office Chair">
+                        </div>
+                        <div>
+                            <label for="purchase-quantity" class="block text-sm font-medium text-gray-700">Quantity</label>
+                            <input type="number" id="purchase-quantity" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" value="1">
+                        </div>
+                        <div>
+                            <label for="purchase-cost" class="block text-sm font-medium text-gray-700">Estimated Cost (Total)</label>
+                            <input type="number" id="purchase-cost" step="0.01" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="e.g., 350.00">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="purchase-link" class="block text-sm font-medium text-gray-700">Product Link (Optional)</label>
+                            <input type="url" id="purchase-link" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="https://www.example.com/product">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="purchase-justification" class="block text-sm font-medium text-gray-700">Reason / Justification</label>
+                            <textarea id="purchase-justification" rows="3" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                        <button id="purchase-request-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700">Submit Request</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Request Details Modal -->
+    <div id="view-request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-70 overflow-y-auto h-full w-full flex items-center justify-center">
+        <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 id="view-request-modal-title" class="text-2xl font-bold text-gray-900">Request Details</h3>
+                <button id="view-request-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+            </div>
+            <div id="view-request-modal-body" class="mt-5 max-h-[60vh] overflow-y-auto pr-2">
+                <!-- Details will be loaded here by JavaScript -->
+            </div>
+            <div id="view-request-modal-footer" class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                <!-- Action buttons will be loaded here by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Your App's Logic -->
+    <script type="module" src="app.js"></script>
+
+</body>
+</html>
