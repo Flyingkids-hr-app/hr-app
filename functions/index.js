@@ -73,7 +73,7 @@ exports.getSupportAssignableUsers = functions.https.onCall(async (data, context)
             managersSnapshot.docs.forEach(doc => addUser(doc.data()));
         }
 
-        const centralRoles = ['Director', 'Regional Director', 'Finance', 'HR', 'Purchaser', 'Admin'];
+        const centralRoles = ['Director', 'RegionalDirector', 'Finance', 'HR', 'Purchaser', 'Admin'];
         console.log("Step 6: Searching for central roles...");
         for (const role of centralRoles) {
             const roleUsers = await getUsersByRole(role);
