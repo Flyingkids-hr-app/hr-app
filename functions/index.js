@@ -27,7 +27,7 @@ const getUsersByRole = async (role) => {
 };
 
 exports.getSupportAssignableUsers = functions.https.onCall(async (data, context) => {
-    console.log("\n--- Starting getSupportAssignableUsers function ---");
+    console.log("\n--- Starting getSupportAssignableUsers function (DEBUG MODE) ---");
 
     // --- TEMPORARY WORKAROUND FOR EMULATOR TESTING ---
     /*
@@ -39,15 +39,14 @@ exports.getSupportAssignableUsers = functions.https.onCall(async (data, context)
 
     try {
         // =================================================================
-        // ## NEW TESTING TOGGLE ##
+        // ## TESTING TOGGLE ##
         // Change this value to "director" or "staff" to test different views.
-        const testScenario = "director"; 
+        const testScenario = "staff";
         // =================================================================
 
         let requesterEmail = "";
         if (testScenario === "director") {
-            // Make sure you have this user in your Firestore emulator data
-            requesterEmail = "director@example.com"; 
+            requesterEmail = "director@example.com";
         } else {
             requesterEmail = "staff@example.com";
         }
@@ -60,13 +59,15 @@ exports.getSupportAssignableUsers = functions.https.onCall(async (data, context)
         }
         const userData = userDoc.data();
         const userRoles = userData.roles || [];
-        console.log(`Step 2: Found requester. Roles: [${userRoles.join(', ')}]`);
+        console.log(`Step 2: Found requester profile. Roles: [${userRoles.join(', ')}], Department: [${userData.primaryDepartment}]`);
 
         const userMap = new Map();
-        const addUser = (user) => {
-            // Make sure the requester doesn't appear in their own assignment list
+        // Modified addUser function for detailed logging
+        const addUser = (user, reason) => {
             if (user && user.email && user.email !== requesterEmail && !userMap.has(user.email)) {
                 userMap.set(user.email, { name: user.name, email: user.email });
+                // This new log tells us WHY a user was added
+                console.log(`  ✅ ADDED: ${user.name} (${user.email}) | REASON: ${reason}`);
             }
         };
         
@@ -75,28 +76,41 @@ exports.getSupportAssignableUsers = functions.https.onCall(async (data, context)
             // Logic for Director: Can assign to ANYONE
             console.log("Step 3: Executing DIRECTOR logic.");
             const allUsersSnapshot = await db.collection('users').where('status', '==', 'active').get();
-            allUsersSnapshot.docs.forEach(doc => addUser(doc.data()));
+            console.log(` -> Found ${allUsersSnapshot.size} total active user(s).`);
+            allUsersSnapshot.docs.forEach(doc => {
+                addUser(doc.data(), `Director's global view`);
+            });
 
         } else {
             // Default logic for Staff and other roles
             console.log("Step 3: Executing DEFAULT logic.");
             const department = userData.primaryDepartment;
             if (department) {
+                console.log(`Step 4: Searching for managers of department: '${department}'`);
                 const managersSnapshot = await db.collection('users')
                     .where('managedDepartments', 'array-contains', department)
                     .where('status', '==', 'active').get();
-                managersSnapshot.docs.forEach(doc => addUser(doc.data()));
+                console.log(` -> Found ${managersSnapshot.size} potential manager(s).`);
+                managersSnapshot.docs.forEach(doc => {
+                    addUser(doc.data(), `Manager of ${department}`);
+                });
             }
     
+            console.log("Step 5: Searching for central roles...");
             const centralRoles = ['Director', 'RegionalDirector', 'Finance', 'HR', 'Purchaser', 'Admin'];
             for (const role of centralRoles) {
                 const roleUsers = await getUsersByRole(role);
-                roleUsers.forEach(user => addUser(user));
+                if (roleUsers.length > 0) {
+                     console.log(` -> Found ${roleUsers.length} user(s) with role '${role}'.`);
+                }
+                roleUsers.forEach(user => {
+                    addUser(user, `Central Role (${role})`);
+                });
             }
         }
 
         const assignableUsers = Array.from(userMap.values());
-        console.log(`Final list contains ${assignableUsers.length} user(s).`);
+        console.log(`\nStep 6: Final list contains ${assignableUsers.length} user(s).`);
         console.log("--- Function finished ---\n");
         return assignableUsers;
 
