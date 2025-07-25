@@ -11,114 +11,133 @@ admin.initializeApp();
 const db = admin.firestore();
 
 /**
- * Gets a list of users who have a specific role.
- * This is a helper function used by the main function.
- * @param {string} role The role to query for.
- * @returns {Array} A list of user objects with that role.
- */
+ * Gets a list of users who have a specific role.
+ * This is a helper function used by the main function.
+ * @param {string} role The role to query for.
+ * @returns {Array} A list of user objects with that role.
+ */
 const getUsersByRole = async (role) => {
-    const snapshot = await db.collection('users').where('roles', 'array-contains', role).where('status', '==', 'active').get();
-    if (snapshot.empty) return [];
-    // We only need the name and email for the dropdown
-    return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return { name: data.name, email: data.email };
-    });
+    const snapshot = await db.collection('users').where('roles', 'array-contains', role).where('status', '==', 'active').get();
+    if (snapshot.empty) return [];
+    // We only need the name and email for the dropdown
+    return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return { name: data.name, email: data.email };
+    });
 };
 
 exports.getSupportAssignableUsers = functions.https.onCall(async (data, context) => {
-    console.log("\n--- Starting getSupportAssignableUsers function (DEBUG MODE) ---");
+    console.log("\n--- Starting getSupportAssignableUsers function ---");
 
-    // --- TEMPORARY WORKAROUND FOR EMULATOR TESTING ---
-    /*
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
-    }
-    */
-    // --- END OF WORKAROUND ---
+    // --- TEMPORARY WORKAROUND FOR EMULATOR TESTING ---
+    /*
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    }
+    */
+    // --- END OF WORKAROUND ---
 
-    try {
-        // =================================================================
-        // ## TESTING TOGGLE ##
-        // Change this value to "director" or "staff" to test different views.
-        const testScenario = "staff";
-        // =================================================================
+    try {
+        const testScenario = "regionalDirector"; // Test with "director", "regionalDirector", "manager", or "staff"
+        let requesterEmail = "";
 
-        let requesterEmail = "";
-        if (testScenario === "director") {
-            requesterEmail = "director@example.com";
-        } else {
-            requesterEmail = "staff@example.com";
-        }
+        // --- Test User Setup ---
+        if (testScenario === "director") {
+            requesterEmail = "director@example.com";
+        } else if (testScenario === "regionalDirector") {
+            requesterEmail = "regionaldirector@example.com"; // Make sure this user exists
+        } else if (testScenario === "manager") {
+            requesterEmail = "manager@example.com";
+        } else {
+            requesterEmail = "staff@example.com";
+        }
+        console.log(`Step 1: Running as test user: ${requesterEmail}`);
 
-        console.log(`Step 1: Running as test user: ${requesterEmail}`);
+        const userDoc = await db.collection('users').doc(requesterEmail).get();
+        if (!userDoc.exists) {
+            throw new functions.https.HttpsError("not-found", "Requesting user not found in Firestore: " + requesterEmail);
+        }
+        const userData = userDoc.data();
+        const userRoles = userData.roles || [];
+        const isRegionalDirector = userRoles.includes('RegionalDirector');
+        const isDepartmentManager = userRoles.includes('DepartmentManager');
+        console.log(`Step 2: Found requester profile. Roles: [${userRoles.join(', ')}]`);
 
-        const userDoc = await db.collection('users').doc(requesterEmail).get();
-        if (!userDoc.exists) {
-            throw new functions.https.HttpsError("not-found", "Requesting user not found in Firestore: " + requesterEmail);
-        }
-        const userData = userDoc.data();
-        const userRoles = userData.roles || [];
-        console.log(`Step 2: Found requester profile. Roles: [${userRoles.join(', ')}], Department: [${userData.primaryDepartment}]`);
+        const userMap = new Map();
+        const addUser = (user) => {
+            if (user && user.email && user.email !== requesterEmail && !userMap.has(user.email)) {
+                userMap.set(user.email, { name: user.name, email: user.email });
+            }
+        };
+        
+        // --- FINAL ROLE-BASED LOGIC ---
+        if (userRoles.includes('Director')) {
+            // DIRECTOR: Can assign to anyone active
+            console.log("Step 3: Executing DIRECTOR logic.");
+            const allUsersSnapshot = await db.collection('users').where('status', '==', 'active').get();
+            allUsersSnapshot.docs.forEach(doc => addUser(doc.data()));
 
-        const userMap = new Map();
-        // Modified addUser function for detailed logging
-        const addUser = (user, reason) => {
-            if (user && user.email && user.email !== requesterEmail && !userMap.has(user.email)) {
-                userMap.set(user.email, { name: user.name, email: user.email });
-                // This new log tells us WHY a user was added
-                console.log(`  ✅ ADDED: ${user.name} (${user.email}) | REASON: ${reason}`);
-            }
-        };
-        
-        // --- ROLE-BASED LOGIC ---
-        if (userRoles.includes('Director')) {
-            // Logic for Director: Can assign to ANYONE
-            console.log("Step 3: Executing DIRECTOR logic.");
-            const allUsersSnapshot = await db.collection('users').where('status', '==', 'active').get();
-            console.log(` -> Found ${allUsersSnapshot.size} total active user(s).`);
-            allUsersSnapshot.docs.forEach(doc => {
-                addUser(doc.data(), `Director's global view`);
-            });
+        } else if (isRegionalDirector) {
+            // REGIONAL DIRECTOR: Can assign to their own staff/managers + specific central roles
+            console.log("Step 3: Executing REGIONAL DIRECTOR logic.");
+            const managedDepts = userData.managedDepartments || [];
 
-        } else {
-            // Default logic for Staff and other roles
-            console.log("Step 3: Executing DEFAULT logic.");
-            const department = userData.primaryDepartment;
-            if (department) {
-                console.log(`Step 4: Searching for managers of department: '${department}'`);
-                const managersSnapshot = await db.collection('users')
-                    .where('managedDepartments', 'array-contains', department)
-                    .where('status', '==', 'active').get();
-                console.log(` -> Found ${managersSnapshot.size} potential manager(s).`);
-                managersSnapshot.docs.forEach(doc => {
-                    addUser(doc.data(), `Manager of ${department}`);
-                });
-            }
-    
-            console.log("Step 5: Searching for central roles...");
-            const centralRoles = ['Director', 'RegionalDirector', 'Finance', 'HR', 'Purchaser', 'Admin'];
-            for (const role of centralRoles) {
-                const roleUsers = await getUsersByRole(role);
-                if (roleUsers.length > 0) {
-                     console.log(` -> Found ${roleUsers.length} user(s) with role '${role}'.`);
-                }
-                roleUsers.forEach(user => {
-                    addUser(user, `Central Role (${role})`);
-                });
-            }
-        }
+            // 1. Find all users within their managed departments
+            if (managedDepts.length > 0) {
+                const regionalUsersSnapshot = await db.collection('users')
+                    .where('primaryDepartment', 'in', managedDepts)
+                    .where('status', '==', 'active').get();
+                regionalUsersSnapshot.docs.forEach(doc => addUser(doc.data()));
+            }
 
-        const assignableUsers = Array.from(userMap.values());
-        console.log(`\nStep 6: Final list contains ${assignableUsers.length} user(s).`);
-        console.log("--- Function finished ---\n");
-        return assignableUsers;
+            // 2. Add the specific list of other roles
+            const otherRoles = ['Finance', 'Purchaser', 'Director', 'HR', 'Admin', 'RespiteManager'];
+            for (const role of otherRoles) {
+                const roleUsers = await getUsersByRole(role);
+                roleUsers.forEach(user => addUser(user));
+            }
 
-    } catch (error) {
-        console.error("!!! FUNCTION CRASHED !!!", error);
-        if (error instanceof functions.https.HttpsError) {
-            throw error;
-        }
-        throw new functions.https.HttpsError("internal", error.message, error);
-    }
+        } else if (isDepartmentManager) {
+            // DEPARTMENT MANAGER: Can assign to their staff AND escalate up
+            console.log("Step 3: Executing DEPARTMENT MANAGER logic.");
+            const managedDepts = userData.managedDepartments || [];
+            if (managedDepts.length > 0) {
+                const staffSnapshot = await db.collection('users')
+                    .where('primaryDepartment', 'in', managedDepts)
+                    .where('status', '==', 'active').get();
+                staffSnapshot.docs.forEach(doc => addUser(doc.data()));
+            }
+            const centralRoles = ['Director', 'RegionalDirector', 'Finance', 'HR', 'Purchaser', 'Admin'];
+            for (const role of centralRoles) {
+                const roleUsers = await getUsersByRole(role);
+                roleUsers.forEach(user => addUser(user));
+            }
+            
+        } else {
+            // STAFF (DEFAULT): Can only assign up to managers and central roles
+            console.log("Step 3: Executing DEFAULT (Staff) logic.");
+            const department = userData.primaryDepartment;
+            if (department) {
+                const managersSnapshot = await db.collection('users')
+                    .where('managedDepartments', 'array-contains', department)
+                    .where('status', '==', 'active').get();
+                managersSnapshot.docs.forEach(doc => addUser(doc.data()));
+            }
+            const centralRoles = ['Director', 'RegionalDirector', 'Finance', 'HR', 'Purchaser', 'Admin'];
+            for (const role of centralRoles) {
+                const roleUsers = await getUsersByRole(role);
+                roleUsers.forEach(user => addUser(user));
+            }
+        }
+
+        const assignableUsers = Array.from(userMap.values());
+        console.log(`Final list contains ${assignableUsers.length} user(s).`);
+        console.log("--- Function finished ---\n");
+        return assignableUsers;
+
+    } catch (error) {
+        console.error("!!! FUNCTION CRASHED !!!", error);
+        if (error instanceof functions.https.HttpsError) { throw error; }
+        throw new functions.https.HttpsError("internal", error.message, error);
+    }
 });
