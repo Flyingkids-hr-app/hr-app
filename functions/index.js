@@ -40,7 +40,7 @@ const getUsersByRole = async (role) => {
 
 // Find and replace this entire function in functions/index.js
 // =================================================================================
-// HTTPS CALLABLE FUNCTION 1: getSupportAssignableUsers (REVISED LOGIC)
+// HTTPS CALLABLE FUNCTION 1: getSupportAssignableUsers (ENHANCED LOGIC)
 // =================================================================================
 exports.getSupportAssignableUsers = onCall(async (request) => {
     // 1. Authentication Check
@@ -53,48 +53,77 @@ exports.getSupportAssignableUsers = onCall(async (request) => {
     }
 
     try {
-        // 2. Fetch the Requester's Profile to find their department
+        // 2. Fetch the Requester's complete profile
         const userDoc = await db.collection('users').doc(requesterEmail).get();
         if (!userDoc.exists) {
             throw new HttpsError("not-found", "Requesting user not found in Firestore: " + requesterEmail);
         }
-        const userDepartment = userDoc.data().primaryDepartment;
+        const userData = userDoc.data();
+        const userDepartment = userData.primaryDepartment;
+        const userRoles = userData.roles || [];
+        const managedDepartments = userData.managedDepartments || [];
+
         if (!userDepartment) {
             throw new HttpsError("failed-precondition", "User does not have a primary department assigned.");
         }
 
-        // 3. Define Queries for the three required groups of users (colleagues, managers, directors)
-        const colleaguesQuery = db.collection('users').where('primaryDepartment', '==', userDepartment).where('status', '==', 'active').get();
-        const managersQuery = db.collection('users').where('managedDepartments', 'array-contains', userDepartment).where('status', '==', 'active').get();
-        const directorsQuery = db.collection('users').where('roles', 'array-contains', 'Director').where('status', '==', 'active').get();
+        // --- NEW LOGIC START ---
 
-        // Execute all queries in parallel for performance
-        const [colleaguesSnapshot, managersSnapshot, directorsSnapshot] = await Promise.all([
-            colleaguesQuery,
-            managersQuery,
-            directorsQuery,
-        ]);
+        // 3. Define Specialist Roles that get an expanded view.
+        // You can add or remove roles from this list as needed.
+        const specialistRoles = [
+            'Finance', 
+            'Admin', 
+            'HR', 
+            'Purchaser', 
+            'HRHead', // Assuming 'HR Head' is a role
+            'DepartmentManager', 
+            'RegionalDirector',
+            'IT',
+            'HR Head'
+        ];
 
-        // 4. Combine and De-duplicate the results using a Map
+        // 4. Build our list of queries to run. Start with the baseline for everyone.
+        const queryPromises = [
+            // Query 1: Colleagues in the same department
+            db.collection('users').where('primaryDepartment', '==', userDepartment).where('status', '==', 'active').get(),
+            // Query 2: Their own managers
+            db.collection('users').where('managedDepartments', 'array-contains', userDepartment).where('status', '==', 'active').get(),
+            // Query 3: All Directors
+            db.collection('users').where('roles', 'array-contains', 'Director').where('status', '==', 'active').get()
+        ];
+
+        // 5. Conditionally add a query for Specialist Roles
+        const isSpecialist = specialistRoles.some(role => userRoles.includes(role));
+        if (isSpecialist && managedDepartments.length > 0) {
+            console.log(`User ${requesterEmail} is a specialist. Expanding search to their ${managedDepartments.length} managed departments.`);
+            // Query 4 (Conditional): All users from the departments this specialist manages
+            queryPromises.push(
+                db.collection('users').where('primaryDepartment', 'in', managedDepartments).where('status', '==', 'active').get()
+            );
+        }
+        
+        // --- NEW LOGIC END ---
+
+        // Execute all queries in parallel (will be 3 for staff, or 4 for specialists)
+        const allSnapshots = await Promise.all(queryPromises);
+
+        // 6. Combine and De-duplicate all results
         const userMap = new Map();
-
         const processSnapshot = (snapshot) => {
             snapshot.forEach(doc => {
-                const userData = doc.data();
-                if (userData.email && userData.email !== requesterEmail && !userMap.has(userData.email)) {
-                    userMap.set(userData.email, { name: userData.name, email: userData.email });
+                const docData = doc.data();
+                if (docData.email && docData.email !== requesterEmail && !userMap.has(docData.email)) {
+                    userMap.set(docData.email, { name: docData.name, email: docData.email });
                 }
             });
         };
+        allSnapshots.forEach(processSnapshot); // Process all snapshots returned from Promise.all
 
-        processSnapshot(colleaguesSnapshot);
-        processSnapshot(managersSnapshot);
-        processSnapshot(directorsSnapshot);
-
-        // 5. Format and Return the final list
+        // 7. Format and Return the final list
         const assignableUsers = Array.from(userMap.values());
         assignableUsers.sort((a, b) => a.name.localeCompare(b.name));
-
+        
         return assignableUsers;
 
     } catch (error) {
