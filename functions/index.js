@@ -130,6 +130,125 @@ exports.getSupportAssignableUsers = onCall(async (request) => {
     }
 });
 
+// Add this entire new function to functions/index.js
+// =================================================================================
+// HTTPS CALLABLE FUNCTION: getLiveTeamStatus
+// =================================================================================
+exports.getLiveTeamStatus = onCall({
+    timeoutSeconds: 60,
+}, async (request) => {
+    // 1. Authentication & Permission Check
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const managerEmail = request.auth.token.email;
+    const managerRoles = request.auth.token.roles || [];
+
+    const isAuthorized = managerRoles.some(role =>
+        ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'HR Head'].includes(role)
+    );
+
+    if (!isAuthorized) {
+        throw new HttpsError('permission-denied', 'You do not have permission to perform this action.');
+    }
+
+    try {
+        // 2. Get Manager's Data and Current Time Info
+        const managerDoc = await db.collection('users').doc(managerEmail).get();
+        if (!managerDoc.exists) {
+            throw new HttpsError("not-found", "Manager profile not found.");
+        }
+        const managerData = managerDoc.data();
+        const managedDepts = managerData.managedDepartments || [];
+
+        const now = moment().tz('Asia/Kuala_Lumpur');
+        const todayStr = now.format('YYYY-MM-DD');
+        const dayOfWeek = now.format('dddd');
+
+        // 3. Fetch all necessary data in parallel
+        const teamMembersQuery = db.collection('users')
+            .where('status', '==', 'active')
+            .where('primaryDepartment', 'in', managedDepts.length > 0 ? managedDepts : ['null']) // Avoid empty 'in' query
+            .get();
+            
+        const attendanceQuery = db.collection('attendance')
+            .where('date', '==', todayStr)
+            .where('department', 'in', managedDepts.length > 0 ? managedDepts : ['null'])
+            .get();
+
+        const leaveQuery = db.collection('requests')
+            .where('status', '==', 'Approved')
+            .where('department', 'in', managedDepts.length > 0 ? managedDepts : ['null'])
+            .get();
+
+        const [teamMembersSnap, attendanceSnap, leaveSnap] = await Promise.all([
+            teamMembersQuery,
+            attendanceQuery,
+            leaveQuery
+        ]);
+
+        if (teamMembersSnap.empty) {
+            return []; // No team members to report on
+        }
+
+        // 4. Process data into easy-to-use Maps
+        const attendanceMap = new Map(attendanceSnap.docs.map(doc => [doc.data().userId, doc.data()]));
+        const leaveMap = new Map();
+        leaveSnap.docs.forEach(doc => {
+            const req = doc.data();
+            const start = moment(req.startDate).tz('Asia/Kuala_Lumpur');
+            const end = moment(req.endDate).tz('Asia/Kuala_Lumpur');
+            if (now.isBetween(start, end, 'day', '[]')) {
+                leaveMap.set(req.userId, req);
+            }
+        });
+
+        // 5. Determine status for each team member
+        const teamStatusList = teamMembersSnap.docs.map(doc => {
+            const user = doc.data();
+            const schedule = user.workSchedule ? user.workSchedule[dayOfWeek] : null;
+
+            // Check 1: Is the user on leave?
+            if (leaveMap.has(user.email)) {
+                return { name: user.name, department: user.primaryDepartment, status: 'On Leave', details: leaveMap.get(user.email).type };
+            }
+
+            // Check 2: Is the user scheduled to work today?
+            if (!schedule || !schedule.active) {
+                return { name: user.name, department: user.primaryDepartment, status: 'Not Scheduled', details: 'Not scheduled to work today.' };
+            }
+
+            // Check 3: Has the user checked in?
+            const attendanceRecord = attendanceMap.get(user.email);
+            if (!attendanceRecord) {
+                const expectedCheckInTime = moment.tz(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
+                if (now.isAfter(expectedCheckInTime)) {
+                     return { name: user.name, department: user.primaryDepartment, status: 'Absent', details: `Was expected at ${schedule.checkIn}` };
+                } else {
+                     return { name: user.name, department: user.primaryDepartment, status: 'Pending Check-in', details: `Scheduled for ${schedule.checkIn}` };
+                }
+            }
+
+            // Check 4: If checked in, were they late?
+            const checkInTime = moment(attendanceRecord.checkInTime.toDate()).tz('Asia/Kuala_Lumpur');
+            const expectedCheckInTime = moment.tz(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
+            if (checkInTime.isAfter(expectedCheckInTime)) {
+                return { name: user.name, department: user.primaryDepartment, status: 'Late', details: `Checked in at ${checkInTime.format('HH:mm')}` };
+            }
+            
+            // If none of the above, they are present
+            return { name: user.name, department: user.primaryDepartment, status: 'Present', details: `Checked in at ${checkInTime.format('HH:mm')}` };
+        });
+
+        return teamStatusList.sort((a, b) => a.name.localeCompare(b.name));
+
+    } catch (error) {
+        console.error("Error in getLiveTeamStatus:", error);
+        throw new HttpsError("internal", "An unexpected error occurred.", error);
+    }
+});
+
+
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: generatePayrollReport (NEW)
 // =================================================================================

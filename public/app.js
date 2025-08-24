@@ -83,6 +83,7 @@ let userLeaveQuota = null;
 let myJobs = []; // Store the jobs for the current user
 
 // --- Navigation Items ---
+// Replace the entire navItems array with this
 const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-house', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
     { id: 'my-documents', label: 'My Documents', icon: 'fa-solid fa-folder-open', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
@@ -95,7 +96,6 @@ const navItems = [
     { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
     { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance'] },
     { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR'] },
-    { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director'] },
     { id: 'system-health', label: 'System Health', icon: 'fa-solid fa-heart-pulse', requiredRoles: ['Director'] },
     { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director'] },
 ];
@@ -1144,6 +1144,83 @@ const exportToCSV = (data, filename) => {
     document.body.removeChild(a);
 };
 
+// Add this entire new function to app.js
+const renderLiveStatusReport = () => {
+    const contentContainer = document.getElementById('report-content-container');
+    const statusColors = {
+        'Present': 'bg-green-100 text-green-800',
+        'Late': 'bg-yellow-100 text-yellow-800',
+        'On Leave': 'bg-blue-100 text-blue-800',
+        'Absent': 'bg-red-100 text-red-800',
+        'Not Scheduled': 'bg-gray-100 text-gray-800',
+        'Pending Check-in': 'bg-purple-100 text-purple-800'
+    };
+
+    const fetchLiveStatus = async () => {
+        const dataContainer = document.getElementById('report-data-container');
+        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching live team status...</p>`;
+
+        try {
+            const getLiveTeamStatus = httpsCallable(functions, 'getLiveTeamStatus');
+            const result = await getLiveTeamStatus();
+            const statusList = result.data;
+
+            let tableHTML = `
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+            `;
+
+            if (statusList.length === 0) {
+                tableHTML += `<tr><td colspan="4" class="p-4 text-center text-gray-500">No team members found in your managed departments.</td></tr>`;
+            } else {
+                statusList.forEach(item => {
+                    tableHTML += `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.name}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.department}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColors[item.status] || 'bg-gray-100'}">
+                                    ${item.status}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600">${item.details}</td>
+                        </tr>
+                    `;
+                });
+            }
+            tableHTML += `</tbody></table></div>`;
+            dataContainer.innerHTML = tableHTML;
+
+        } catch (error) {
+            console.error("Error fetching live status:", error);
+            dataContainer.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded-lg"><strong>Error:</strong> ${error.message}</div>`;
+        }
+    };
+
+    contentContainer.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+            <p class="text-gray-600">Real-time attendance status for your managed departments as of today.</p>
+            <button id="refresh-status-btn" class="bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh Status
+            </button>
+        </div>
+        <div id="report-data-container"></div>
+    `;
+
+    document.getElementById('refresh-status-btn').addEventListener('click', fetchLiveStatus);
+    fetchLiveStatus(); // Load data initially
+};
+
+
 const renderPayrollReport = async () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
@@ -1943,6 +2020,9 @@ const loadReport = (reportType) => {
     dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading report...</p>`;
 
     switch (reportType) {
+        case 'livestatus': // <-- ADD THIS CASE
+        renderLiveStatusReport();
+        break;       
         case 'payroll':
             renderPayrollReport();
             break;
@@ -1969,13 +2049,15 @@ const loadReport = (reportType) => {
     }
 };
 
+// Replace the entire renderReports function with this
 const renderReports = async () => {
     pageTitle.textContent = 'Reports';
     contentArea.innerHTML = `
         <div class="bg-white p-6 rounded-lg shadow">
             <div class="mb-4 border-b border-gray-200">
                 <nav class="-mb-px flex space-x-8 overflow-x-auto" id="report-tabs">
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="payroll">Payroll Summary</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="livestatus">Live Status</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="payroll">Payroll Summary</button>
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="exceptions">Attendance Exceptions</button>
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="support">Support Tickets</button>
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="leave">Leave / OT</button>
@@ -2002,9 +2084,8 @@ const renderReports = async () => {
     });
 
     // Load the first tab by default
-    loadReport('payroll');
+    loadReport('livestatus');
 };
-
 
 // =================================================================================
 // END: REPORTS PAGE FUNCTIONS
