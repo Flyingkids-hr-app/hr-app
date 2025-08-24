@@ -878,6 +878,7 @@ const renderMyJob = async () => {
     }
 };
 
+// Find and replace this entire function in app.js
 const renderSettings = async () => {
     pageTitle.textContent = 'Settings';
     if (!userData || !userData.roles.includes('Director')) {
@@ -902,10 +903,20 @@ const renderSettings = async () => {
                 <div id="request-types-list" class="space-y-2 mb-4 max-h-96 overflow-y-auto"></div>
                 <div class="border-t pt-4 space-y-3">
                      <input type="text" id="new-req-type-name" class="w-full py-2 px-3 border border-gray-300 rounded-md" placeholder="New Request Type Name">
-                     <label class="flex items-center space-x-2">
-                         <input type="checkbox" id="new-req-type-quota" class="form-checkbox h-5 w-5 text-indigo-600">
-                         <span class="text-gray-700">Has Quota (deducts from balance)</span>
-                    </label>
+                     <div class="space-y-2 pl-2">
+                         <label class="flex items-center space-x-2">
+                             <input type="checkbox" id="new-req-type-quota" class="form-checkbox h-5 w-5 text-indigo-600">
+                             <span class="text-gray-700">Has Quota (deducts from balance)</span>
+                         </label>
+                         <label class="flex items-center space-x-2">
+                             <input type="checkbox" id="new-req-type-paid" class="form-checkbox h-5 w-5 text-indigo-600">
+                             <span class="text-gray-700">Is Paid Leave (for Payroll)</span>
+                         </label>
+                         <label class="flex items-center space-x-2">
+                             <input type="checkbox" id="new-req-type-cross-dept" class="form-checkbox h-5 w-5 text-indigo-600">
+                             <span class="text-gray-700">Cross-Department OT (for Payroll)</span>
+                         </label>
+                     </div>
                     <button id="add-req-type-btn" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600">Add</button>
                 </div>
             </div>
@@ -918,7 +929,8 @@ const renderSettings = async () => {
     `;
     contentArea.innerHTML = settingsHTML;
     let currentDepartments = [...appConfig.availableDepartments];
-    let currentRequestTypes = JSON.parse(JSON.stringify(appConfig.requestTypes));
+    let currentRequestTypes = JSON.parse(JSON.stringify(appConfig.requestTypes || []));
+
     const updateDeptList = () => {
         const listEl = document.getElementById('departments-list');
         listEl.innerHTML = currentDepartments.map(dept => `
@@ -929,19 +941,26 @@ const renderSettings = async () => {
         `).join('') || '<p class="text-gray-500 text-center p-4">No departments configured.</p>';
         document.querySelectorAll('.delete-dept-btn').forEach(btn => btn.addEventListener('click', handleDeleteDept));
     };
+
+    // UPDATED FUNCTION to display all three properties
     const updateReqTypeList = () => {
         const listEl = document.getElementById('request-types-list');
         listEl.innerHTML = currentRequestTypes.map((type, index) => `
             <div class="flex justify-between items-center p-2 bg-gray-50 rounded group">
                 <div>
                     <span class="font-medium">${type.name}</span>
-                    <span class="text-xs font-semibold px-2 py-1 rounded-full ml-2 ${type.hasQuota ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}">${type.hasQuota ? 'Has Quota' : 'No Quota'}</span>
+                    <div class="flex space-x-2 mt-1">
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.hasQuota ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}">Has Quota</span>
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.isPaidLeave ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">Is Paid</span>
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.isCrossDepartmental ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-700'}">Cross-Dept OT</span>
+                    </div>
                 </div>
                 <button class="delete-req-type-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-index="${index}"><i class="fas fa-trash-alt"></i></button>
             </div>
         `).join('') || '<p class="text-gray-500 text-center p-4">No request types configured.</p>';
         document.querySelectorAll('.delete-req-type-btn').forEach(btn => btn.addEventListener('click', handleDeleteReqType));
     };
+    
     const handleDeleteDept = (e) => {
         const deptToDelete = e.currentTarget.dataset.dept;
         if (confirm(`Are you sure you want to delete the department "${deptToDelete}"?`)) {
@@ -949,6 +968,7 @@ const renderSettings = async () => {
             updateDeptList();
         }
     };
+    
     const handleDeleteReqType = (e) => {
         const indexToDelete = parseInt(e.currentTarget.dataset.index, 10);
         const typeName = currentRequestTypes[indexToDelete].name;
@@ -957,6 +977,7 @@ const renderSettings = async () => {
             updateReqTypeList();
         }
     };
+    
     document.getElementById('add-dept-btn').addEventListener('click', () => {
         const input = document.getElementById('new-department-name');
         const newDept = input.value.trim();
@@ -969,20 +990,32 @@ const renderSettings = async () => {
             alert('This department already exists.');
         }
     });
+
+    // UPDATED event listener to read all three checkboxes
     document.getElementById('add-req-type-btn').addEventListener('click', () => {
         const nameInput = document.getElementById('new-req-type-name');
         const quotaInput = document.getElementById('new-req-type-quota');
+        const paidInput = document.getElementById('new-req-type-paid');
+        const crossDeptInput = document.getElementById('new-req-type-cross-dept');
         const newName = nameInput.value.trim();
         if (newName && !currentRequestTypes.some(rt => rt.name.toLowerCase() === newName.toLowerCase())) {
-            currentRequestTypes.push({ name: newName, hasQuota: quotaInput.checked });
+            currentRequestTypes.push({
+                name: newName,
+                hasQuota: quotaInput.checked,
+                isPaidLeave: paidInput.checked,
+                isCrossDepartmental: crossDeptInput.checked
+            });
             currentRequestTypes.sort((a, b) => a.name.localeCompare(b.name));
             nameInput.value = '';
             quotaInput.checked = false;
+            paidInput.checked = false;
+            crossDeptInput.checked = false;
             updateReqTypeList();
         } else if (newName) {
             alert('This request type already exists.');
         }
     });
+    
     document.getElementById('save-settings-btn').addEventListener('click', async (e) => {
         const button = e.currentTarget;
         if (!confirm("Are you sure you want to save these changes to the application configuration? This may affect all users.")) return;
@@ -1004,6 +1037,7 @@ const renderSettings = async () => {
             button.innerHTML = '<i class="fas fa-save mr-2"></i>Save All Changes';
         }
     });
+    
     updateDeptList();
     updateReqTypeList();
 };
