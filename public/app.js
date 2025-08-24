@@ -1144,20 +1144,25 @@ const exportToCSV = (data, filename) => {
     document.body.removeChild(a);
 };
 
+// Find and replace this entire function in app.js
 const renderReports = async () => {
     pageTitle.textContent = 'Reports';
+    // NEW: Added buttons for Payroll, Exceptions, and Support
     contentArea.innerHTML = `
         <div class="bg-white p-6 rounded-lg shadow">
             <div class="mb-4 border-b border-gray-200">
-                <nav class="-mb-px flex space-x-8" id="report-tabs">
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="leave">Leave / OT</button>
+                <nav class="-mb-px flex space-x-8 overflow-x-auto" id="report-tabs">
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="payroll">Payroll Summary</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="exceptions">Attendance Exceptions</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="support">Support Tickets</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="leave">Leave / OT</button>
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="claims">Claims</button>
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="purchasing">Purchasing</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="attendance">Attendance</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="attendance">Attendance History</button>
                 </nav>
             </div>
-            <div id="report-filters"></div>
-            <div id="report-data-container"></div>
+            <div id="report-content-container">
+                </div>
         </div>
     `;
 
@@ -1173,17 +1178,30 @@ const renderReports = async () => {
         });
     });
 
-    loadReport('leave');
+    // Load the first tab by default
+    loadReport('payroll');
 };
 
+// Find and replace this entire function in app.js
 const loadReport = (reportType) => {
-    const filtersContainer = document.getElementById('report-filters');
-    const dataContainer = document.getElementById('report-data-container');
+    const contentContainer = document.getElementById('report-content-container');
+    contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`; // Reset container
 
-    filtersContainer.innerHTML = '';
+    const dataContainer = document.getElementById('report-data-container');
     dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading report...</p>`;
 
     switch (reportType) {
+        case 'payroll':
+            renderPayrollReport(); // We will create this function next
+            break;
+        case 'exceptions':
+            // renderExceptionsReport(); // We will create this later
+            dataContainer.innerHTML = '<p class="text-center p-4">Attendance Exceptions report coming soon.</p>';
+            break;
+        case 'support':
+            // renderSupportTicketsReport(); // We will create this later
+            dataContainer.innerHTML = '<p class="text-center p-4">Support Tickets report coming soon.</p>';
+            break;
         case 'leave':
             renderLeaveReport();
             break;
@@ -1278,6 +1296,114 @@ const renderReportFilters = (container, options) => {
     document.getElementById('apply-filters-btn').addEventListener('click', onApply);
     if(isManager && document.getElementById('export-csv-btn')) {
         document.getElementById('export-csv-btn').addEventListener('click', onExport);
+    }
+};
+
+// Add this entire new function before renderLeaveReport
+const renderPayrollReport = async () => {
+    const filtersContainer = document.getElementById('report-filters');
+    const dataContainer = document.getElementById('report-data-container');
+    
+    dataContainer.innerHTML = `<p class="text-center p-4">Please select users and a month to generate a report.</p>`;
+
+    try {
+        // 1. Fetch all users to populate the multi-select dropdown
+        const usersSnapshot = await getDocs(query(collection(db, 'users'), where('status', '==', 'active'), orderBy('name')));
+        const allActiveUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        let userOptions = allActiveUsers.map(user => `<option value="${user.email}">${user.name}</option>`).join('');
+
+        // 2. Render the filters UI
+        filtersContainer.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 border rounded-lg">
+                <div class="md:col-span-2">
+                    <label for="payroll-users" class="block text-sm font-medium text-gray-700">Select Users (multiple allowed)</label>
+                    <select id="payroll-users" multiple class="mt-1 block w-full h-48 py-2 px-3 border border-gray-300 rounded-md">
+                        ${userOptions}
+                    </select>
+                    <div class="mt-2 text-sm">
+                        <button id="payroll-select-all" class="text-indigo-600 hover:underline">Select All</button> |
+                        <button id="payroll-deselect-all" class="text-indigo-600 hover:underline">Deselect All</button>
+                    </div>
+                </div>
+                <div>
+                    <label for="payroll-month" class="block text-sm font-medium text-gray-700">Select Month</label>
+                    <input type="month" id="payroll-month" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                </div>
+                <div class="flex items-end">
+                    <button id="generate-payroll-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">
+                        <i class="fas fa-cogs mr-2"></i>Generate Report
+                    </button>
+                </div>
+            </div>
+        `;
+
+        // 3. Add event listeners for the filter controls
+        const usersSelect = document.getElementById('payroll-users');
+        document.getElementById('payroll-select-all').addEventListener('click', () => {
+            Array.from(usersSelect.options).forEach(option => option.selected = true);
+        });
+        document.getElementById('payroll-deselect-all').addEventListener('click', () => {
+            Array.from(usersSelect.options).forEach(option => option.selected = false);
+        });
+
+        document.getElementById('generate-payroll-btn').addEventListener('click', async () => {
+            const selectedUsers = Array.from(usersSelect.selectedOptions).map(option => option.value);
+            const monthValue = document.getElementById('payroll-month').value;
+
+            if (selectedUsers.length === 0 || !monthValue) {
+                alert('Please select at least one user and a month.');
+                return;
+            }
+
+            const [year, month] = monthValue.split('-');
+            const payload = {
+                userIds: selectedUsers,
+                year: parseInt(year),
+                month: parseInt(month)
+            };
+
+            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data... This may take a moment.</p>`;
+
+            try {
+                // 4. Call the Cloud Function
+                const generatePayrollReport = httpsCallable(functions, 'generatePayrollReport');
+                const result = await generatePayrollReport(payload);
+                const reportData = result.data;
+
+                if (!reportData || reportData.length === 0) {
+                    dataContainer.innerHTML = `<p class="text-center p-4">No data returned for the selected criteria.</p>`;
+                    return;
+                }
+
+                // 5. Render the results table
+                const headers = Object.keys(reportData[0]);
+                let tableHTML = `
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h}</th>`).join('')}</tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                ${reportData.map(row => `
+                                    <tr>
+                                        ${headers.map(header => `<td class="px-6 py-4 whitespace-nowrap">${row[header]}</td>`).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                dataContainer.innerHTML = tableHTML;
+            } catch (error) {
+                console.error("Error calling generatePayrollReport:", error);
+                dataContainer.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded-lg"><strong>Error:</strong> ${error.message}</div>`;
+            }
+        });
+
+    } catch (error) {
+        console.error("Error rendering payroll report page:", error);
+        filtersContainer.innerHTML = `<p class="text-red-600">Could not load user list for filters.</p>`;
     }
 };
 
@@ -2483,19 +2609,29 @@ const handlePurchaseRequestSubmit = async (e) => {
 
 // --- UI Rendering & Router ---
 // Add this entire new function
+// Find and replace this entire function in app.js
 const setupMobileMenu = () => {
-    const closeMenu = () => {
+    const closeMenu = (e) => {
+        // Prevent the event from bubbling up and causing other clicks
+        if (e) e.preventDefault();
         sidebar.classList.add('-translate-x-full');
         sidebarOverlay.classList.add('hidden');
     };
 
-    const openMenu = () => {
+    const openMenu = (e) => {
+        // Prevent the event from bubbling up
+        if (e) e.preventDefault();
         sidebar.classList.remove('-translate-x-full');
         sidebarOverlay.classList.remove('hidden');
     };
 
+    // Listen for both click (desktop) and touchstart (mobile)
     hamburgerButton.addEventListener('click', openMenu);
+    hamburgerButton.addEventListener('touchstart', openMenu);
+
     sidebarOverlay.addEventListener('click', closeMenu);
+    sidebarOverlay.addEventListener('touchstart', closeMenu);
+
 
     // Add event listeners to all nav links to close the menu on click
     document.getElementById('sidebar-nav').addEventListener('click', (e) => {
