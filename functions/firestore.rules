@@ -1,0 +1,132 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function hasAnyRole(roleList) {
+      return isSignedIn() &&
+             'roles' in request.auth.token && 
+             request.auth.token.roles.hasAny(roleList);
+    }
+
+    function managesDepartmentOfNewDoc() {
+      return isSignedIn() &&
+             'managedDepartments' in request.auth.token &&
+             request.auth.token.managedDepartments[request.resource.data.department] == true;
+    }
+    
+    function managesDepartmentOfDoc() {
+      return isSignedIn() &&
+             'managedDepartments' in request.auth.token &&
+             request.auth.token.managedDepartments[resource.data.department] == true;
+    }
+    
+    function isOwnerOfDoc() {
+      return request.auth.token.email == resource.data.userId;
+    }
+    
+    function isCreatingForSelf() {
+      return request.auth.token.email == request.resource.data.userId;
+    }
+
+    // --- Collection Rules ---
+
+    match /configuration/{docId} {
+      allow read: if isSignedIn();
+      allow write: if hasAnyRole(['Director', 'Admin', 'HR Head']);
+    }
+
+    match /users/{userEmail} {
+      allow read: if isSignedIn();
+      allow update: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director', 'HR', 'HR Head']);
+      allow create, delete: if hasAnyRole(['Director', 'HR', 'HR Head']);
+      
+      match /documents/{docId} {
+        allow read: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']);
+        allow write: if hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']);
+      }
+      match /notifications/{docId} {
+        allow read, write: if isSignedIn() && request.auth.token.email == userEmail;
+      }
+      match /leaveQuotas/{year} {
+          allow get: if (isSignedIn() && request.auth.token.email == userEmail) ||
+                       hasAnyRole(['Director', 'HR', 'HR Head']) ||
+                       (
+                           'managedDepartments' in request.auth.token &&
+                           request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true
+                       );
+          allow list: if hasAnyRole(['Director', 'HR', 'HR Head']);
+          allow write: if (isSignedIn() && request.auth.token.email == userEmail) ||
+                        hasAnyRole(['Director', 'HR', 'HR Head']) ||
+                        (
+                            'managedDepartments' in request.auth.token &&
+                            request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true
+                        );
+      }
+    }
+
+    // --- Rules for Shared Data Collections ---
+
+    match /requests/{docId} {
+      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isCreatingForSelf();
+    }
+    
+    match /claims/{docId} {
+      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'Finance']) || managesDepartmentOfDoc());
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isCreatingForSelf();
+    }
+
+    match /purchaseRequests/{docId} {
+      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'Purchaser']) || managesDepartmentOfDoc());
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isCreatingForSelf();
+    }
+
+    match /supportRequests/{docId} {
+      allow create: if isSignedIn() && request.auth.token.email == request.resource.data.requesterId;
+      allow get, update, delete: if isSignedIn() && (request.auth.token.email == resource.data.requesterId || hasAnyRole(['Director', 'IT']));
+      allow list: if isSignedIn();
+    }
+
+    match /attendance/{docId} {
+      allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc());
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && (isCreatingForSelf() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfNewDoc());
+      allow update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc());
+    }
+
+    match /attendanceExceptions/{docId} {
+      allow create: if true; // Created by backend function
+      allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc());
+      allow list: if isSignedIn();
+      allow update: if hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc();
+    }
+    
+    match /announcements/{docId} {
+        allow read: if isSignedIn();
+        allow create: if hasAnyRole(['Director', 'RegionalDirector', 'DepartmentManager', 'HR', 'HR Head', 'Admin', 'IT', 'Finance']);
+        allow delete: if isSignedIn() && (resource.data.creatorId == request.auth.token.email || hasAnyRole(['Director']));
+    }
+    
+match /companyCalendar/{date} {
+  allow read: if isSignedIn();
+  allow write: if (
+      // Allow if the user is a true Super Admin
+      hasAnyRole(['Director', 'Admin'])
+    ) || (
+      // OR, allow if the user is HR or HR Head AND all depts being set are ones they manage
+      hasAnyRole(['HR', 'HR Head']) &&
+      !request.resource.data.appliesTo.hasAny(['__ALL__']) &&
+      request.resource.data.appliesTo.diff(request.auth.token.managedDepartments.keys()).size() == 0
+    );
+}
+
+  }
+}

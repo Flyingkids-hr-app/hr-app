@@ -38,6 +38,9 @@ const loginButton = document.getElementById('login-button');
 const mainApp = document.getElementById('main-app');
 const pageTitle = document.getElementById('page-title');
 const contentArea = document.getElementById('content-area');
+const hamburgerButton = document.getElementById('hamburger-button');
+const sidebar = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
 
 // Modal Elements
 const editUserModal = document.getElementById('edit-user-modal');
@@ -92,6 +95,8 @@ const navItems = [
     { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
     { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance'] },
     { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR'] },
+    { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director'] },
+    { id: 'system-health', label: 'System Health', icon: 'fa-solid fa-heart-pulse', requiredRoles: ['Director'] },
     { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director'] },
 ];
 
@@ -1002,6 +1007,102 @@ const renderSettings = async () => {
     updateDeptList();
     updateReqTypeList();
 };
+
+// Add this entire new function
+const renderSystemHealth = async () => {
+    pageTitle.textContent = 'System Health';
+    contentArea.innerHTML = `<div class="p-6">Loading System Health Dashboard...</div>`;
+
+    try {
+        // --- Data Fetching ---
+        const getActiveUsersCount = getDocs(query(collection(db, 'users'), where('status', '==', 'active')));
+        const getPendingApprovalsCount = getDocs(query(collection(db, 'requests'), where('status', '==', 'Pending')));
+        const getOpenTicketsCount = getDocs(query(collection(db, 'supportRequests'), where('status', '!=', 'Closed')));
+
+        const [usersSnapshot, approvalsSnapshot, ticketsSnapshot] = await Promise.all([
+            getActiveUsersCount,
+            getPendingApprovalsCount,
+            getOpenTicketsCount
+        ]);
+
+        const activeUsers = usersSnapshot.size;
+        const pendingApprovals = approvalsSnapshot.size;
+        const openTickets = ticketsSnapshot.size;
+
+        // --- HTML Rendering ---
+        const projectId = firebaseConfig.projectId;
+        const logsUrl = `https://console.cloud.google.com/logs/viewer?project=${projectId}&pageState=(%22savedSearches%22:(%22insertId%22:%22clgy1y070034g3561a0s0g2f9%22,%22name%22:%22Cloud%20Functions%22,%22query%22:%22resource.type%3D%5C%22cloud_function%5C%22%22))`;
+
+
+        let healthHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-lg shadow text-center">
+                    <p class="text-5xl font-bold text-blue-600">${activeUsers}</p>
+                    <p class="text-gray-500 mt-2">Active Users</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow text-center">
+                    <p class="text-5xl font-bold text-yellow-600">${pendingApprovals}</p>
+                    <p class="text-gray-500 mt-2">Pending Leave/OT Approvals</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow text-center">
+                    <p class="text-5xl font-bold text-red-600">${openTickets}</p>
+                    <p class="text-gray-500 mt-2">Open Support Tickets</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-xl font-semibold mb-4">Admin Actions</h3>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+                        <div>
+                            <p class="font-medium text-gray-800">Run Daily Attendance Check</p>
+                            <p class="text-sm text-gray-600">Manually trigger the scheduled function that checks for absences and late check-ins.</p>
+                        </div>
+                        <button id="run-attendance-check-btn" class="bg-indigo-600 text-white font-bold py-2 px-4 rounded hover:bg-indigo-700">Run Now</button>
+                    </div>
+                     <div class="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+                        <div>
+                            <p class="font-medium text-gray-800">View Cloud Function Logs</p>
+                            <p class="text-sm text-gray-600">Open the Google Cloud Console to view real-time logs and errors from your backend functions.</p>
+                        </div>
+                        <a href="${logsUrl}" target="_blank" class="bg-gray-600 text-white font-bold py-2 px-4 rounded hover:bg-gray-700">View Logs</a>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        contentArea.innerHTML = healthHTML;
+
+        // --- Event Listeners ---
+        document.getElementById('run-attendance-check-btn').addEventListener('click', async (e) => {
+            const button = e.target;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Running...';
+            if (!confirm("Are you sure you want to manually run the daily attendance check? This will generate exceptions for today.")) {
+                 button.disabled = false;
+                 button.innerHTML = 'Run Now';
+                 return;
+            }
+            try {
+                const testDailyAttendance = httpsCallable(functions, 'testDailyAttendance');
+                const result = await testDailyAttendance();
+                alert("Function executed successfully! Check the Cloud Function logs for details.");
+                console.log(result.data);
+            } catch (error) {
+                console.error("Error running testDailyAttendance function:", error);
+                alert("An error occurred while running the function. Check the browser console and Cloud Function logs for details.");
+            } finally {
+                button.disabled = false;
+                button.innerHTML = 'Run Now';
+            }
+        });
+
+    } catch (error) {
+        console.error("Error rendering System Health page:", error);
+        contentArea.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-lg">Failed to load system health data.</div>`;
+    }
+};
+
 
 // =================================================================================
 // START: REPORTS PAGE FUNCTIONS
@@ -2381,6 +2482,32 @@ const handlePurchaseRequestSubmit = async (e) => {
 };
 
 // --- UI Rendering & Router ---
+// Add this entire new function
+const setupMobileMenu = () => {
+    const closeMenu = () => {
+        sidebar.classList.add('-translate-x-full');
+        sidebarOverlay.classList.add('hidden');
+    };
+
+    const openMenu = () => {
+        sidebar.classList.remove('-translate-x-full');
+        sidebarOverlay.classList.remove('hidden');
+    };
+
+    hamburgerButton.addEventListener('click', openMenu);
+    sidebarOverlay.addEventListener('click', closeMenu);
+
+    // Add event listeners to all nav links to close the menu on click
+    document.getElementById('sidebar-nav').addEventListener('click', (e) => {
+        if (e.target.tagName === 'A' || e.target.closest('a')) {
+             // Only close if screen is small (mobile view)
+            if (window.innerWidth < 768) {
+                closeMenu();
+            }
+        }
+    });
+};
+
 const renderSidebar = () => {
     const navContainer = document.getElementById('sidebar-nav');
     navContainer.innerHTML = '';
@@ -2413,6 +2540,7 @@ const navigateTo = (pageId) => {
         'approvals': renderApprovals,
         'reports': renderReports,
         'user-management': renderUserManagement, 
+        'system-health': renderSystemHealth, // <-- ADD THIS LINE
         'settings': renderSettings
     };
     (pages[pageId] || renderDashboard)();
@@ -2427,6 +2555,7 @@ const showMainApp = () => {
     mainApp.classList.remove('hidden');
     renderHeader();
     renderSidebar();
+    setupMobileMenu(); // <-- ADD THIS LINE
     navigateTo('dashboard');
 };
 
