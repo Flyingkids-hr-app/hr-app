@@ -1144,162 +1144,6 @@ const exportToCSV = (data, filename) => {
     document.body.removeChild(a);
 };
 
-// Find and replace this entire function in app.js
-const renderReports = async () => {
-    pageTitle.textContent = 'Reports';
-    // NEW: Added buttons for Payroll, Exceptions, and Support
-    contentArea.innerHTML = `
-        <div class="bg-white p-6 rounded-lg shadow">
-            <div class="mb-4 border-b border-gray-200">
-                <nav class="-mb-px flex space-x-8 overflow-x-auto" id="report-tabs">
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="payroll">Payroll Summary</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="exceptions">Attendance Exceptions</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="support">Support Tickets</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="leave">Leave / OT</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="claims">Claims</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="purchasing">Purchasing</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="attendance">Attendance History</button>
-                </nav>
-            </div>
-            <div id="report-content-container">
-                </div>
-        </div>
-    `;
-
-    document.querySelectorAll('.tab-btn').forEach(tab => {
-        tab.addEventListener('click', (e) => {
-            document.querySelectorAll('.tab-btn').forEach(t => {
-                t.classList.remove('border-indigo-500', 'text-indigo-600');
-                t.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-            });
-            e.target.classList.add('border-indigo-500', 'text-indigo-600');
-            e.target.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-            loadReport(e.target.dataset.report);
-        });
-    });
-
-    // Load the first tab by default
-    loadReport('payroll');
-};
-
-// Find and replace this entire function in app.js
-const loadReport = (reportType) => {
-    const contentContainer = document.getElementById('report-content-container');
-    contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`; // Reset container
-
-    const dataContainer = document.getElementById('report-data-container');
-    dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading report...</p>`;
-
-    switch (reportType) {
-        case 'payroll':
-            renderPayrollReport(); // We will create this function next
-            break;
-        case 'exceptions':
-            renderExceptionsReport(); // We will create this later
-            dataContainer.innerHTML = '<p class="text-center p-4">Attendance Exceptions report coming soon.</p>';
-            break;
-        case 'support':
-            // renderSupportTicketsReport(); // We will create this later
-            dataContainer.innerHTML = '<p class="text-center p-4">Support Tickets report coming soon.</p>';
-            break;
-        case 'leave':
-            renderLeaveReport();
-            break;
-        case 'claims':
-            renderClaimsReport();
-            break;
-        case 'purchasing':
-            renderPurchasingReport();
-            break;
-        case 'attendance':
-            renderAttendanceReport();
-            break;
-        default:
-            dataContainer.innerHTML = '<p class="text-center p-4">Select a report type.</p>';
-    }
-};
-
-const renderReportFilters = (container, options) => {
-    const { showDateRange, showStatus, showDepartment, onApply, onExport } = options;
-    const hasGlobalAccess = userData.roles.includes('Director') || userData.roles.includes('HR') || userData.roles.includes('Finance');
-    const isManager = userData.roles.some(r => ['DepartmentManager', 'Director', 'HR', 'Finance', 'Purchaser'].includes(r));
-
-
-    let filtersHTML = '<div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">';
-
-    if (showDateRange) {
-        filtersHTML += `
-            <div>
-                <label for="report-start-date" class="block text-sm font-medium text-gray-700">Start Date</label>
-                <input type="date" id="report-start-date" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
-            </div>
-            <div>
-                <label for="report-end-date" class="block text-sm font-medium text-gray-700">End Date</label>
-                <input type="date" id="report-end-date" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
-            </div>
-        `;
-    }
-
-    if (showStatus) {
-        filtersHTML += `
-            <div>
-                <label for="report-status" class="block text-sm font-medium text-gray-700">Status</label>
-                <select id="report-status" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
-                    <option value="">All</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Approved">Approved</option>
-                    <option value="Rejected">Rejected</option>
-                    <option value="Paid">Paid</option>
-                    <option value="Processing">Processing</option>
-                    <option value="Completed">Completed</option>
-                </select>
-            </div>
-        `;
-    }
-
-    if (showDepartment && hasGlobalAccess) {
-        let deptOptions = '<option value="">All Departments</option>';
-        appConfig.availableDepartments.forEach(dept => {
-            deptOptions += `<option value="${dept}">${dept}</option>`;
-        });
-        filtersHTML += `
-            <div>
-                <label for="report-department" class="block text-sm font-medium text-gray-700">Department</label>
-                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">${deptOptions}</select>
-            </div>
-        `;
-    } else {
-        // Add a placeholder div to maintain grid alignment if some filters are not shown
-        filtersHTML += '<div></div>';
-    }
-
-    filtersHTML += `
-        <div class="flex items-end">
-            <button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button>
-        </div>
-    `;
-
-    if (isManager) {
-        filtersHTML += `
-            <div class="flex items-end">
-                 <button id="export-csv-btn" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700">
-                    <i class="fas fa-file-csv mr-2"></i>Export CSV
-                </button>
-            </div>
-        `;
-    }
-
-
-    filtersHTML += '</div>';
-    container.innerHTML = filtersHTML;
-
-    document.getElementById('apply-filters-btn').addEventListener('click', onApply);
-    if(isManager && document.getElementById('export-csv-btn')) {
-        document.getElementById('export-csv-btn').addEventListener('click', onExport);
-    }
-};
-
-// Add this entire new function before renderLeaveReport
 const renderPayrollReport = async () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
@@ -1407,8 +1251,6 @@ const renderPayrollReport = async () => {
     }
 };
 
-
-// Add this entire new function to app.js
 const renderExceptionsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
@@ -1549,6 +1391,138 @@ const renderExceptionsReport = () => {
 
     // Initial data load
     fetchData();
+};
+
+const renderSupportTicketsReport = () => {
+    const filtersContainer = document.getElementById('report-filters');
+    const dataContainer = document.getElementById('report-data-container');
+    let allTickets = []; // Cache all tickets to avoid re-fetching
+
+    // --- Main data fetching and rendering function ---
+    const fetchDataAndRender = async () => {
+        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching all support tickets...</p>`;
+
+        try {
+            // Fetch all tickets once and cache them
+            if (allTickets.length === 0) {
+                const querySnapshot = await getDocs(query(collection(db, 'supportRequests'), orderBy('createdAt', 'desc')));
+                allTickets = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            }
+
+            // Get current filter values
+            const status = document.getElementById('report-status')?.value;
+            const assigneeId = document.getElementById('report-assignee')?.value;
+            const startDate = document.getElementById('report-start-date')?.value;
+            const endDate = document.getElementById('report-end-date')?.value;
+
+            // Filter the cached data on the client side
+            let filteredTickets = allTickets;
+            if (status) {
+                filteredTickets = filteredTickets.filter(t => t.status === status);
+            }
+            if (assigneeId) {
+                filteredTickets = filteredTickets.filter(t => t.assigneeId === assigneeId);
+            }
+            if (startDate) {
+                const start = new Date(startDate);
+                filteredTickets = filteredTickets.filter(t => t.createdAt.toDate() >= start);
+            }
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999); // Include the whole end day
+                filteredTickets = filteredTickets.filter(t => t.createdAt.toDate() <= end);
+            }
+
+            // Render the table
+            let tableHTML = `
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created On</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assignee</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+            `;
+
+            if (filteredTickets.length === 0) {
+                tableHTML += `<tr><td colspan="5" class="p-4 text-center text-gray-500">No support tickets found for the selected filters.</td></tr>`;
+            } else {
+                filteredTickets.forEach(ticket => {
+                    const statusColor = { 'Open': 'bg-blue-100 text-blue-800', 'In Progress': 'bg-yellow-100 text-yellow-800', 'Completed': 'bg-purple-100 text-purple-800', 'Closed': 'bg-green-100 text-green-800' }[ticket.status] || 'bg-gray-100';
+                    tableHTML += `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">${formatDate(ticket.createdAt)}</td>
+                            <td class="px-6 py-4">${ticket.subject}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${ticket.requesterName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${ticket.assigneeName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${ticket.status}</span></td>
+                        </tr>
+                    `;
+                });
+            }
+
+            tableHTML += `</tbody></table></div>`;
+            dataContainer.innerHTML = tableHTML;
+
+        } catch (error) {
+            console.error("Error fetching support tickets:", error);
+            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading support tickets.</p>`;
+        }
+    };
+
+    // --- Render the initial filters for this report ---
+    const renderFilters = async () => {
+        try {
+            const usersSnapshot = await getDocs(query(collection(db, 'users'), orderBy('name')));
+            const userOptions = usersSnapshot.docs.map(doc => `<option value="${doc.id}">${doc.data().name}</option>`).join('');
+
+            filtersContainer.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+                    <div>
+                        <label for="report-start-date" class="block text-sm font-medium text-gray-700">Start Date</label>
+                        <input type="date" id="report-start-date" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                    </div>
+                    <div>
+                        <label for="report-end-date" class="block text-sm font-medium text-gray-700">End Date</label>
+                        <input type="date" id="report-end-date" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                    </div>
+                    <div>
+                        <label for="report-status" class="block text-sm font-medium text-gray-700">Status</label>
+                        <select id="report-status" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                            <option value="">All</option>
+                            <option value="Open">Open</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Closed">Closed</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="report-assignee" class="block text-sm font-medium text-gray-700">Assignee</label>
+                        <select id="report-assignee" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                            <option value="">All Users</option>
+                            ${userOptions}
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('apply-filters-btn').addEventListener('click', fetchDataAndRender);
+        } catch (error) {
+            console.error("Error rendering filters:", error);
+            filtersContainer.innerHTML = `<p class="text-red-600">Could not load filters.</p>`;
+        }
+    };
+
+    // Initial setup
+    renderFilters();
+    fetchDataAndRender();
 };
 
 
@@ -1959,6 +1933,76 @@ const renderAttendanceReport = () => {
         onExport: () => exportToCSV(dataForExport, 'attendance-report')
     });
     fetchData();
+};
+
+const loadReport = (reportType) => {
+    const contentContainer = document.getElementById('report-content-container');
+    contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`; // Reset container
+
+    const dataContainer = document.getElementById('report-data-container');
+    dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading report...</p>`;
+
+    switch (reportType) {
+        case 'payroll':
+            renderPayrollReport();
+            break;
+        case 'exceptions':
+            renderExceptionsReport();
+            break;
+        case 'support':
+            renderSupportTicketsReport();
+            break;
+        case 'leave':
+            renderLeaveReport();
+            break;
+        case 'claims':
+            renderClaimsReport();
+            break;
+        case 'purchasing':
+            renderPurchasingReport();
+            break;
+        case 'attendance':
+            renderAttendanceReport();
+            break;
+        default:
+            dataContainer.innerHTML = '<p class="text-center p-4">Select a report type.</p>';
+    }
+};
+
+const renderReports = async () => {
+    pageTitle.textContent = 'Reports';
+    contentArea.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow">
+            <div class="mb-4 border-b border-gray-200">
+                <nav class="-mb-px flex space-x-8 overflow-x-auto" id="report-tabs">
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="payroll">Payroll Summary</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="exceptions">Attendance Exceptions</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="support">Support Tickets</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="leave">Leave / OT</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="claims">Claims</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="purchasing">Purchasing</button>
+                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="attendance">Attendance History</button>
+                </nav>
+            </div>
+            <div id="report-content-container">
+                </div>
+        </div>
+    `;
+
+    document.querySelectorAll('.tab-btn').forEach(tab => {
+        tab.addEventListener('click', (e) => {
+            document.querySelectorAll('.tab-btn').forEach(t => {
+                t.classList.remove('border-indigo-500', 'text-indigo-600');
+                t.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+            });
+            e.target.classList.add('border-indigo-500', 'text-indigo-600');
+            e.target.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+            loadReport(e.target.dataset.report);
+        });
+    });
+
+    // Load the first tab by default
+    loadReport('payroll');
 };
 
 
