@@ -888,8 +888,10 @@ const renderSettings = async () => {
     if (!appConfig) {
         await fetchAppConfig();
     }
+
+    // NEW: HTML now includes all 3 cards
     let settingsHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="bg-white p-6 rounded-lg shadow">
                 <h3 class="text-xl font-semibold mb-4 border-b pb-2">Manage Departments</h3>
                 <div id="departments-list" class="space-y-2 mb-4 max-h-96 overflow-y-auto"></div>
@@ -898,6 +900,7 @@ const renderSettings = async () => {
                     <button id="add-dept-btn" class="bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600">Add</button>
                 </div>
             </div>
+
             <div class="bg-white p-6 rounded-lg shadow">
                 <h3 class="text-xl font-semibold mb-4 border-b pb-2">Manage Request Types</h3>
                 <div id="request-types-list" class="space-y-2 mb-4 max-h-96 overflow-y-auto"></div>
@@ -920,6 +923,20 @@ const renderSettings = async () => {
                     <button id="add-req-type-btn" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600">Add</button>
                 </div>
             </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-xl font-semibold mb-4 border-b pb-2">Manage Claim Types</h3>
+                <div id="claim-types-list" class="space-y-2 mb-4 max-h-96 overflow-y-auto"></div>
+                <div class="border-t pt-4 space-y-3">
+                     <input type="text" id="new-claim-type-name" class="w-full py-2 px-3 border border-gray-300 rounded-md" placeholder="New Claim Type Name">
+                     <label for="new-claim-type-category" class="block text-sm font-medium text-gray-700">Category</label>
+                     <select id="new-claim-type-category" class="w-full py-2 px-3 border border-gray-300 rounded-md">
+                        <option value="Reimbursement">Reimbursement</option>
+                        <option value="Allowance">Allowance</option>
+                     </select>
+                    <button id="add-claim-type-btn" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600">Add</button>
+                </div>
+            </div>
         </div>
         <div class="mt-6 flex justify-end">
             <button id="save-settings-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg">
@@ -928,21 +945,39 @@ const renderSettings = async () => {
         </div>
     `;
     contentArea.innerHTML = settingsHTML;
-    let currentDepartments = [...appConfig.availableDepartments];
+    
+    // Initialize local copies of the settings arrays
+    let currentDepartments = JSON.parse(JSON.stringify(appConfig.availableDepartments || []));
     let currentRequestTypes = JSON.parse(JSON.stringify(appConfig.requestTypes || []));
+    let currentClaimTypes = JSON.parse(JSON.stringify(appConfig.claimTypes || []));
 
+    // --- Logic for Departments ---
     const updateDeptList = () => {
         const listEl = document.getElementById('departments-list');
         listEl.innerHTML = currentDepartments.map(dept => `
-            <div class="flex justify-between items-center p-2 bg-gray-50 rounded group">
-                <span class="text-gray-800">${dept}</span>
-                <button class="delete-dept-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-dept="${dept}"><i class="fas fa-trash-alt"></i></button>
-            </div>
+            <div class="flex justify-between items-center p-2 bg-gray-50 rounded group"><span class="text-gray-800">${dept}</span><button class="delete-dept-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-dept="${dept}"><i class="fas fa-trash-alt"></i></button></div>
         `).join('') || '<p class="text-gray-500 text-center p-4">No departments configured.</p>';
         document.querySelectorAll('.delete-dept-btn').forEach(btn => btn.addEventListener('click', handleDeleteDept));
     };
+    const handleDeleteDept = (e) => {
+        const deptToDelete = e.currentTarget.dataset.dept;
+        if (confirm(`Are you sure you want to delete the department "${deptToDelete}"?`)) {
+            currentDepartments = currentDepartments.filter(d => d !== deptToDelete);
+            updateDeptList();
+        }
+    };
+    document.getElementById('add-dept-btn').addEventListener('click', () => {
+        const input = document.getElementById('new-department-name');
+        const newDept = input.value.trim();
+        if (newDept && !currentDepartments.find(d => d.toLowerCase() === newDept.toLowerCase())) {
+            currentDepartments.push(newDept);
+            currentDepartments.sort();
+            input.value = '';
+            updateDeptList();
+        } else if (newDept) { alert('This department already exists.'); }
+    });
 
-    // UPDATED FUNCTION to display all three properties
+    // --- Logic for Request Types ---
     const updateReqTypeList = () => {
         const listEl = document.getElementById('request-types-list');
         listEl.innerHTML = currentRequestTypes.map((type, index) => `
@@ -960,15 +995,6 @@ const renderSettings = async () => {
         `).join('') || '<p class="text-gray-500 text-center p-4">No request types configured.</p>';
         document.querySelectorAll('.delete-req-type-btn').forEach(btn => btn.addEventListener('click', handleDeleteReqType));
     };
-    
-    const handleDeleteDept = (e) => {
-        const deptToDelete = e.currentTarget.dataset.dept;
-        if (confirm(`Are you sure you want to delete the department "${deptToDelete}"?`)) {
-            currentDepartments = currentDepartments.filter(d => d !== deptToDelete);
-            updateDeptList();
-        }
-    };
-    
     const handleDeleteReqType = (e) => {
         const indexToDelete = parseInt(e.currentTarget.dataset.index, 10);
         const typeName = currentRequestTypes[indexToDelete].name;
@@ -977,21 +1003,6 @@ const renderSettings = async () => {
             updateReqTypeList();
         }
     };
-    
-    document.getElementById('add-dept-btn').addEventListener('click', () => {
-        const input = document.getElementById('new-department-name');
-        const newDept = input.value.trim();
-        if (newDept && !currentDepartments.find(d => d.toLowerCase() === newDept.toLowerCase())) {
-            currentDepartments.push(newDept);
-            currentDepartments.sort();
-            input.value = '';
-            updateDeptList();
-        } else if (newDept) {
-            alert('This department already exists.');
-        }
-    });
-
-    // UPDATED event listener to read all three checkboxes
     document.getElementById('add-req-type-btn').addEventListener('click', () => {
         const nameInput = document.getElementById('new-req-type-name');
         const quotaInput = document.getElementById('new-req-type-quota');
@@ -999,23 +1010,49 @@ const renderSettings = async () => {
         const crossDeptInput = document.getElementById('new-req-type-cross-dept');
         const newName = nameInput.value.trim();
         if (newName && !currentRequestTypes.some(rt => rt.name.toLowerCase() === newName.toLowerCase())) {
-            currentRequestTypes.push({
-                name: newName,
-                hasQuota: quotaInput.checked,
-                isPaidLeave: paidInput.checked,
-                isCrossDepartmental: crossDeptInput.checked
-            });
+            currentRequestTypes.push({ name: newName, hasQuota: quotaInput.checked, isPaidLeave: paidInput.checked, isCrossDepartmental: crossDeptInput.checked });
             currentRequestTypes.sort((a, b) => a.name.localeCompare(b.name));
             nameInput.value = '';
-            quotaInput.checked = false;
-            paidInput.checked = false;
-            crossDeptInput.checked = false;
+            quotaInput.checked = paidInput.checked = crossDeptInput.checked = false;
             updateReqTypeList();
-        } else if (newName) {
-            alert('This request type already exists.');
-        }
+        } else if (newName) { alert('This request type already exists.'); }
     });
-    
+
+    // --- Logic for Claim Types (NEW) ---
+    const updateClaimTypeList = () => {
+        const listEl = document.getElementById('claim-types-list');
+        listEl.innerHTML = currentClaimTypes.map((type, index) => `
+            <div class="flex justify-between items-center p-2 bg-gray-50 rounded group">
+                <div>
+                    <span class="font-medium">${type.name}</span>
+                    <span class="text-xs font-semibold px-2 py-1 rounded-full ml-2 ${type.category === 'Allowance' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${type.category}</span>
+                </div>
+                <button class="delete-claim-type-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-index="${index}"><i class="fas fa-trash-alt"></i></button>
+            </div>
+        `).join('') || '<p class="text-gray-500 text-center p-4">No claim types configured.</p>';
+        document.querySelectorAll('.delete-claim-type-btn').forEach(btn => btn.addEventListener('click', handleDeleteClaimType));
+    };
+    const handleDeleteClaimType = (e) => {
+        const indexToDelete = parseInt(e.currentTarget.dataset.index, 10);
+        const typeName = currentClaimTypes[indexToDelete].name;
+        if (confirm(`Are you sure you want to delete the claim type "${typeName}"?`)) {
+            currentClaimTypes.splice(indexToDelete, 1);
+            updateClaimTypeList();
+        }
+    };
+    document.getElementById('add-claim-type-btn').addEventListener('click', () => {
+        const nameInput = document.getElementById('new-claim-type-name');
+        const categoryInput = document.getElementById('new-claim-type-category');
+        const newName = nameInput.value.trim();
+        if (newName && !currentClaimTypes.some(ct => ct.name.toLowerCase() === newName.toLowerCase())) {
+            currentClaimTypes.push({ name: newName, category: categoryInput.value });
+            currentClaimTypes.sort((a, b) => a.name.localeCompare(b.name));
+            nameInput.value = '';
+            updateClaimTypeList();
+        } else if (newName) { alert('This claim type already exists.'); }
+    });
+
+    // --- Logic for the main Save Button (UPDATED) ---
     document.getElementById('save-settings-btn').addEventListener('click', async (e) => {
         const button = e.currentTarget;
         if (!confirm("Are you sure you want to save these changes to the application configuration? This may affect all users.")) return;
@@ -1025,11 +1062,12 @@ const renderSettings = async () => {
             const configRef = doc(db, 'configuration', 'main');
             await updateDoc(configRef, {
                 availableDepartments: currentDepartments,
-                requestTypes: currentRequestTypes
+                requestTypes: currentRequestTypes,
+                claimTypes: currentClaimTypes // Now saves claim types too
             });
             alert('Settings updated successfully!');
-            await fetchAppConfig();
-            navigateTo('settings');
+            await fetchAppConfig(); // Refresh the global config state
+            navigateTo('settings'); // Re-render the page
         } catch (error) {
             console.error("Error saving settings:", error);
             alert("Failed to save settings. Please check the console for details.");
@@ -1037,9 +1075,11 @@ const renderSettings = async () => {
             button.innerHTML = '<i class="fas fa-save mr-2"></i>Save All Changes';
         }
     });
-    
+
+    // Initial render of all lists
     updateDeptList();
     updateReqTypeList();
+    updateClaimTypeList(); // New function call
 };
 
 // Add this entire new function
@@ -2879,10 +2919,10 @@ const openClaimModal = () => {
     claimForm.reset();
     const claimTypeSelect = document.getElementById('claim-type');
     claimTypeSelect.innerHTML = '<option value="">Select a type...</option>';
-    appConfig.claimTypes.forEach(type => {
+    (appConfig.claimTypes || []).forEach(type => {
         const option = document.createElement('option');
-        option.value = type;
-        option.textContent = type;
+        option.value = type.name;
+        option.textContent = type.name;
         claimTypeSelect.appendChild(option);
     });
     document.getElementById('upload-progress').textContent = '';
@@ -2903,58 +2943,66 @@ const handleClaimSubmit = async (e) => {
     const description = document.getElementById('claim-description').value.trim();
     const receiptFile = document.getElementById('claim-receipt').files[0];
 
-    if (!claimType || !expenseDate || !amount || !description || !receiptFile) {
-        alert("Please fill out all fields and upload a receipt.");
+    if (!claimType || !expenseDate || !amount || !description) {
+        alert("Please fill out all required fields.");
         submitButton.disabled = false;
         submitButton.textContent = 'Submit Claim';
         return;
     }
 
-    try {
+    const newClaim = {
+        userId: currentUser.email,
+        userName: userData.name,
+        department: userData.primaryDepartment,
+        claimType: claimType,
+        expenseDate: expenseDate,
+        amount: amount,
+        description: description,
+        receiptUrl: null,
+        status: 'Pending',
+        createdAt: serverTimestamp(),
+        approvedBy: null
+    };
+
+    const saveClaim = async () => {
+        try {
+            await addDoc(collection(db, 'claims'), newClaim);
+            alert('Claim submitted successfully!');
+            closeClaimModal();
+            navigateTo('claims');
+        } catch (error) {
+            console.error("Error submitting claim:", error);
+            alert("Failed to submit claim.");
+        } finally {
+            submitButton.disabled = false;
+            submitButton.textContent = 'Submit Claim';
+        }
+    };
+
+    if (receiptFile) {
         const progressIndicator = document.getElementById('upload-progress');
         const filePath = `receipts/${currentUser.uid}/${Date.now()}_${receiptFile.name}`;
         const storageRef = ref(storage, filePath);
         const uploadTask = uploadBytesResumable(storageRef, receiptFile);
 
-        uploadTask.on('state_changed', 
+        uploadTask.on('state_changed',
             (snapshot) => {
                 const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
                 progressIndicator.textContent = `Upload is ${progress.toFixed(0)}% done`;
-            }, 
+            },
             (error) => {
                 console.error("Upload failed:", error);
                 alert("Receipt upload failed. Please try again.");
                 submitButton.disabled = false;
                 submitButton.textContent = 'Submit Claim';
-            }, 
+            },
             async () => {
-                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                
-                const newClaim = {
-                    userId: currentUser.email,
-                    userName: userData.name,
-                    department: userData.primaryDepartment,
-                    claimType: claimType,
-                    expenseDate: expenseDate,
-                    amount: amount,
-                    description: description,
-                    receiptUrl: downloadURL,
-                    status: 'Pending',
-                    createdAt: serverTimestamp(),
-                    approvedBy: null
-                };
-
-                await addDoc(collection(db, 'claims'), newClaim);
-                alert('Claim submitted successfully!');
-                closeClaimModal();
-                navigateTo('claims');
+                newClaim.receiptUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                await saveClaim();
             }
         );
-    } catch (error) {
-        console.error("Error submitting claim:", error);
-        alert("Failed to submit claim.");
-        submitButton.disabled = false;
-        submitButton.textContent = 'Submit Claim';
+    } else {
+        await saveClaim();
     }
 };
 

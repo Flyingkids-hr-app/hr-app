@@ -252,16 +252,14 @@ exports.getLiveTeamStatus = onCall({
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: generatePayrollReport (NEW)
 // =================================================================================
-
+// Find and replace this entire function in functions/index.js
 exports.generatePayrollReport = onCall({
-
     timeoutSeconds: 60,
 }, async (request) => {
     // 1. --- AUTHENTICATION & PERMISSION CHECK ---
     if (!request.auth) {
         throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
-    const requesterEmail = request.auth.token.email;
     const requesterRoles = request.auth.token.roles || [];
     if (!requesterRoles.includes('Director') && !requesterRoles.includes('HR')) {
         throw new HttpsError('permission-denied', 'You do not have permission to generate this report.');
@@ -272,7 +270,6 @@ exports.generatePayrollReport = onCall({
     if (!year || !month || !userIds || !Array.isArray(userIds) || userIds.length === 0) {
         throw new HttpsError('invalid-argument', 'The function must be called with a year, month, and a list of user IDs.');
     }
-
     if (userIds.length > 30) {
         throw new HttpsError('invalid-argument', 'Cannot process more than 30 users at a time.');
     }
@@ -285,9 +282,8 @@ exports.generatePayrollReport = onCall({
         .where('userId', 'in', userIds)
         .where('date', '>=', startDateStr)
         .where('date', '<=', endDateStr)
-       .limit(1)
+        .limit(1)
         .get();
-
 
     if (!exceptionsQuery.empty) {
         throw new HttpsError('failed-precondition', 'Cannot generate report. There are unresolved attendance exceptions for the selected period. Please resolve them first.');
@@ -309,7 +305,7 @@ exports.generatePayrollReport = onCall({
         const allRequests = requestsSnap.docs.map(doc => doc.data());
         const allClaims = claimsSnap.docs.map(doc => doc.data());
         const allAttendance = attendanceSnap.docs.map(doc => doc.data());
-        const crossDeptOtTypes = appConfig.requestTypes
+        const crossDeptOtTypes = (appConfig.requestTypes || [])
             .filter(rt => rt.isCrossDepartmental)
             .map(rt => rt.name);
 
@@ -322,14 +318,14 @@ exports.generatePayrollReport = onCall({
             let paidLeaveHours = 0;
             let unpaidLeaveHours = 0;
             let ownDeptOtHours = 0;
-            let totalClaims = 0;
-
+            // ** NEW ** Initialize separate claim counters
+            let totalAllowances = 0;
+            let totalReimbursements = 0;
 
             const dynamicOtHours = {};
             crossDeptOtTypes.forEach(typeName => {
                 dynamicOtHours[`${typeName} (Hrs)`] = 0;
             });
-
 
             // A. Calculate Total Workdays
             const monthStart = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur');
@@ -341,20 +337,16 @@ exports.generatePayrollReport = onCall({
                     totalWorkdays++;
                 }
             }
-
-
-
+            
             // B. Calculate Total Attendance Days
             const userAttendance = allAttendance.filter(att => att.userId === user.email);
             totalAttendDays = userAttendance.length;
 
-
             // C. Aggregate Leave and OT Requests
             const userRequests = allRequests.filter(req => req.userId === user.email);
             for (const req of userRequests) {
-                const reqTypeConfig = appConfig.requestTypes.find(rt => rt.name === req.type);
+                const reqTypeConfig = (appConfig.requestTypes || []).find(rt => rt.name === req.type);
                 if (!reqTypeConfig) continue;
-
 
                 if (req.type.toLowerCase().includes('overtime')) {
                     if (req.department === user.primaryDepartment) {
@@ -364,17 +356,26 @@ exports.generatePayrollReport = onCall({
                     }
                 } else {
                     if (reqTypeConfig.isPaidLeave) {
-                       paidLeaveHours += req.hours;
+                        paidLeaveHours += req.hours;
                     } else {
                         unpaidLeaveHours += req.hours;
                     }
                 }
             }
-
-
-            // D. Aggregate Claims
+            
+            // D. ** NEW ** Aggregate Claims into separate categories
+            const claimTypesConfig = appConfig.claimTypes || [];
             const userClaims = allClaims.filter(claim => claim.userId === user.email);
-            totalClaims = userClaims.reduce((sum, claim) => sum + claim.amount, 0);
+            for (const claim of userClaims) {
+                const claimTypeInfo = claimTypesConfig.find(ct => ct.name === claim.claimType);
+                if (claimTypeInfo && claimTypeInfo.category === 'Allowance') {
+                    totalAllowances += claim.amount;
+                } else {
+                    // Default to reimbursement if category not found or is 'Reimbursement'
+                    totalReimbursements += claim.amount;
+                }
+            }
+
             // E. Assemble the final object for this user
             payrollData.push({
                 Name: user.name,
@@ -382,10 +383,11 @@ exports.generatePayrollReport = onCall({
                 TotalWorkdays: totalWorkdays,
                 TotalAttendDays: totalAttendDays,
                 'Paid Leave (Hours)': paidLeaveHours,
-               'Unpaid Leave (Hours)': unpaidLeaveHours,
+                'Unpaid Leave (Hours)': unpaidLeaveHours,
                 'Own Department OT (Hours)': ownDeptOtHours,
                 ...dynamicOtHours,
-                'Total Approved Claims ($)': parseFloat(totalClaims.toFixed(2))
+                'Total Allowances ($)': parseFloat(totalAllowances.toFixed(2)),
+                'Total Reimbursements ($)': parseFloat(totalReimbursements.toFixed(2))
             });
         }
 
@@ -396,7 +398,6 @@ exports.generatePayrollReport = onCall({
         throw new HttpsError("internal", "An unexpected error occurred while generating the report.", error);
     }
 });
-
 
 // --- HELPER FUNCTION containing the core logic (Upgraded) ---
 const runAttendanceCheckLogic = async () => {
