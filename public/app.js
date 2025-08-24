@@ -1195,7 +1195,7 @@ const loadReport = (reportType) => {
             renderPayrollReport(); // We will create this function next
             break;
         case 'exceptions':
-            // renderExceptionsReport(); // We will create this later
+            renderExceptionsReport(); // We will create this later
             dataContainer.innerHTML = '<p class="text-center p-4">Attendance Exceptions report coming soon.</p>';
             break;
         case 'support':
@@ -1405,6 +1405,150 @@ const renderPayrollReport = async () => {
         console.error("Error rendering payroll report page:", error);
         filtersContainer.innerHTML = `<p class="text-red-600">Could not load user list for filters.</p>`;
     }
+};
+
+
+// Add this entire new function to app.js
+const renderExceptionsReport = () => {
+    const filtersContainer = document.getElementById('report-filters');
+    const dataContainer = document.getElementById('report-data-container');
+    let dataForExport = []; // We can add export functionality later if needed
+
+    const hasGlobalAccess = userData.roles.includes('Director') || userData.roles.includes('HR');
+
+    // --- Helper function to handle approvals/rejections ---
+    const handleUpdateException = async (exceptionId, newStatus) => {
+        const exceptionRef = doc(db, 'attendanceExceptions', exceptionId);
+        const updateData = {
+            status: newStatus,
+            resolvedBy: currentUser.email,
+            resolvedAt: serverTimestamp()
+        };
+
+        if (newStatus === 'Rejected') {
+            const reason = prompt("Please provide a reason for rejecting this exception:");
+            if (reason === null || reason.trim() === '') {
+                alert("Rejection cancelled. A reason is required.");
+                return;
+            }
+            updateData.rejectionReason = reason.trim();
+        }
+
+        try {
+            await updateDoc(exceptionRef, updateData);
+            alert(`Exception marked as ${newStatus}.`);
+            fetchData(); // Refresh the report data
+        } catch (error) {
+            console.error("Error updating exception:", error);
+            alert("Failed to update the exception. Please try again.");
+        }
+    };
+
+    // --- Main data fetching and rendering function ---
+    const fetchData = async () => {
+        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching attendance exceptions...</p>`;
+
+        const status = document.getElementById('report-status')?.value || 'Pending';
+        const department = document.getElementById('report-department')?.value;
+        
+        let q = query(collection(db, 'attendanceExceptions'), where('status', '==', status), orderBy('date', 'desc'));
+
+        if (department) {
+            q = query(q, where('department', '==', department));
+        } else if (!hasGlobalAccess && userData.managedDepartments?.length > 0) {
+            q = query(q, where('department', 'in', userData.managedDepartments));
+        }
+
+        try {
+            const querySnapshot = await getDocs(q);
+            const exceptions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            let tableHTML = `
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                                ${status === 'Pending' ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+            `;
+
+            if (exceptions.length === 0) {
+                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No exceptions found for the selected filters.</td></tr>`;
+            } else {
+                exceptions.forEach(ex => {
+                    tableHTML += `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">${formatDate(ex.date)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${ex.userName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${ex.department}</td>
+                            <td class="px-6 py-4 whitespace-nowrap"><span class="font-semibold">${ex.type}</span></td>
+                            <td class="px-6 py-4 text-sm text-gray-600">${ex.details}</td>
+                            ${status === 'Pending' ? `
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                                    <button class="approve-btn text-green-600 hover:text-green-900" data-id="${ex.id}">Approve</button>
+                                    <button class="reject-btn text-red-600 hover:text-red-900" data-id="${ex.id}">Reject</button>
+                                </td>
+                            ` : ''}
+                        </tr>
+                    `;
+                });
+            }
+
+            tableHTML += `</tbody></table></div>`;
+            dataContainer.innerHTML = tableHTML;
+
+            // Add event listeners to the new buttons
+            document.querySelectorAll('.approve-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => handleUpdateException(e.target.dataset.id, 'Approved'));
+            });
+            document.querySelectorAll('.reject-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => handleUpdateException(e.target.dataset.id, 'Rejected'));
+            });
+
+        } catch (error) {
+            console.error("Error fetching attendance exceptions:", error);
+            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data. A Firestore index may be required.</p>`;
+        }
+    };
+
+    // --- Render the initial filters for this report ---
+    let deptOptions = hasGlobalAccess ? appConfig.availableDepartments.map(d => `<option value="${d}">${d}</option>`).join('') : '';
+
+    filtersContainer.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div>
+                <label for="report-status" class="block text-sm font-medium text-gray-700">Status</label>
+                <select id="report-status" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                    <option value="Pending" selected>Pending</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Rejected">Rejected</option>
+                </select>
+            </div>
+            ${hasGlobalAccess ? `
+            <div>
+                <label for="report-department" class="block text-sm font-medium text-gray-700">Department</label>
+                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                    <option value="">All Departments</option>
+                    ${deptOptions}
+                </select>
+            </div>` : ''}
+            <div class="flex items-end">
+                <button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('apply-filters-btn').addEventListener('click', fetchData);
+
+    // Initial data load
+    fetchData();
 };
 
 
