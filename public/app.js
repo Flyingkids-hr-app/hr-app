@@ -1113,25 +1113,18 @@ const exportToCSV = (data, filename) => {
         alert("No data to export.");
         return;
     }
-
-    // Get headers from the keys of the first object
     const headers = Object.keys(data[0]);
     const headerRow = headers.join(',');
-
-    // Map data to CSV rows, escaping special characters
     const dataRows = data.map(row => {
         return headers.map(header => {
             const cell = row[header] === null || row[header] === undefined ? '' : row[header];
             let cellString = String(cell);
-            // Escape quotes and wrap in quotes if it contains commas, newlines, or quotes
             if (cellString.includes('"') || cellString.includes(',') || cellString.includes('\n')) {
                 cellString = '"' + cellString.replace(/"/g, '""') + '"';
             }
             return cellString;
         }).join(',');
     });
-
-    // Combine header and data rows
     const csvContent = [headerRow, ...dataRows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
@@ -1142,6 +1135,75 @@ const exportToCSV = (data, filename) => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+};
+
+const renderReportFilters = (container, options) => {
+    const { showDateRange, showStatus, showDepartment, onApply, onExport } = options;
+    const hasGlobalAccess = userData.roles.includes('Director') || userData.roles.includes('HR') || userData.roles.includes('Finance');
+    const isManager = userData.roles.some(r => ['DepartmentManager', 'Director', 'HR', 'Finance', 'Purchaser'].includes(r));
+    let filtersHTML = '<div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">';
+    if (showDateRange) {
+        filtersHTML += `
+            <div>
+                <label for="report-start-date" class="block text-sm font-medium text-gray-700">Start Date</label>
+                <input type="date" id="report-start-date" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+            </div>
+            <div>
+                <label for="report-end-date" class="block text-sm font-medium text-gray-700">End Date</label>
+                <input type="date" id="report-end-date" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+            </div>
+        `;
+    }
+    if (showStatus) {
+        filtersHTML += `
+            <div>
+                <label for="report-status" class="block text-sm font-medium text-gray-700">Status</label>
+                <select id="report-status" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                    <option value="">All</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="Paid">Paid</option>
+                    <option value="Processing">Processing</option>
+                    <option value="Completed">Completed</option>
+                </select>
+            </div>
+        `;
+    }
+    if (showDepartment && hasGlobalAccess) {
+        let deptOptions = '<option value="">All Departments</option>';
+        appConfig.availableDepartments.forEach(dept => {
+            deptOptions += `<option value="${dept}">${dept}</option>`;
+        });
+        filtersHTML += `
+            <div>
+                <label for="report-department" class="block text-sm font-medium text-gray-700">Department</label>
+                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">${deptOptions}</select>
+            </div>
+        `;
+    } else {
+        filtersHTML += '<div></div>';
+    }
+    filtersHTML += `
+        <div class="flex items-end">
+            <button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button>
+        </div>
+    `;
+    if (isManager) {
+        filtersHTML += `
+            <div class="flex items-end">
+                 <button id="export-csv-btn" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700">
+                     <i class="fas fa-file-csv mr-2"></i>Export CSV
+                 </button>
+            </div>
+        `;
+    }
+    filtersHTML += '</div>';
+    container.innerHTML = filtersHTML;
+    document.getElementById('apply-filters-btn').addEventListener('click', onApply);
+    if(isManager && document.getElementById('export-csv-btn')) {
+        document.getElementById('export-csv-btn').addEventListener('click', onExport);
+    }
 };
 
 // Add this entire new function to app.js
@@ -2014,15 +2076,14 @@ const renderAttendanceReport = () => {
 
 const loadReport = (reportType) => {
     const contentContainer = document.getElementById('report-content-container');
-    contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`; // Reset container
-
+    contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`;
     const dataContainer = document.getElementById('report-data-container');
     dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading report...</p>`;
 
     switch (reportType) {
-        case 'livestatus': // <-- ADD THIS CASE
-        renderLiveStatusReport();
-        break;       
+        case 'livestatus':
+            renderLiveStatusReport();
+            break;
         case 'payroll':
             renderPayrollReport();
             break;
@@ -2049,7 +2110,6 @@ const loadReport = (reportType) => {
     }
 };
 
-// Replace the entire renderReports function with this
 const renderReports = async () => {
     pageTitle.textContent = 'Reports';
     contentArea.innerHTML = `
@@ -2066,8 +2126,7 @@ const renderReports = async () => {
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="attendance">Attendance History</button>
                 </nav>
             </div>
-            <div id="report-content-container">
-                </div>
+            <div id="report-content-container"></div>
         </div>
     `;
 
@@ -2083,7 +2142,6 @@ const renderReports = async () => {
         });
     });
 
-    // Load the first tab by default
     loadReport('livestatus');
 };
 
