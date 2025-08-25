@@ -72,6 +72,15 @@ const purchaseRequestForm = document.getElementById('purchase-request-form');
 const purchaseRequestModalCloseButton = document.getElementById('purchase-request-modal-close-button');
 const purchaseRequestModalCancelButton = document.getElementById('purchase-request-modal-cancel-button');
 const viewRequestModal = document.getElementById('view-request-modal');
+// Add these to the bottom of the Modal Elements section
+const correctAttendanceModal = document.getElementById('correct-attendance-modal');
+const correctAttendanceForm = document.getElementById('correct-attendance-form');
+const correctAttendanceModalCloseButton = document.getElementById('correct-attendance-modal-close-button');
+const correctAttendanceModalCancelButton = document.getElementById('correct-attendance-modal-cancel-button');
+const resolveExceptionModal = document.getElementById('resolve-exception-modal');
+const resolveExceptionForm = document.getElementById('resolve-exception-form');
+const resolveExceptionModalCloseButton = document.getElementById('resolve-exception-modal-close-button');
+const resolveExceptionModalCancelButton = document.getElementById('resolve-exception-modal-cancel-button');
 
 
 // --- Global State ---
@@ -1470,40 +1479,13 @@ const renderPayrollReport = async () => {
     }
 };
 
+// Replace the entire renderExceptionsReport function with this new version
 const renderExceptionsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
-    let dataForExport = []; // We can add export functionality later if needed
+    let currentExceptionsData = []; // Cache the fetched data for the modals
 
     const hasGlobalAccess = userData.roles.includes('Director') || userData.roles.includes('HR');
-
-    // --- Helper function to handle approvals/rejections ---
-    const handleUpdateException = async (exceptionId, newStatus) => {
-        const exceptionRef = doc(db, 'attendanceExceptions', exceptionId);
-        const updateData = {
-            status: newStatus,
-            resolvedBy: currentUser.email,
-            resolvedAt: serverTimestamp()
-        };
-
-        if (newStatus === 'Rejected') {
-            const reason = prompt("Please provide a reason for rejecting this exception:");
-            if (reason === null || reason.trim() === '') {
-                alert("Rejection cancelled. A reason is required.");
-                return;
-            }
-            updateData.rejectionReason = reason.trim();
-        }
-
-        try {
-            await updateDoc(exceptionRef, updateData);
-            alert(`Exception marked as ${newStatus}.`);
-            fetchData(); // Refresh the report data
-        } catch (error) {
-            console.error("Error updating exception:", error);
-            alert("Failed to update the exception. Please try again.");
-        }
-    };
 
     // --- Main data fetching and rendering function ---
     const fetchData = async () => {
@@ -1523,6 +1505,7 @@ const renderExceptionsReport = () => {
         try {
             const querySnapshot = await getDocs(q);
             const exceptions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            currentExceptionsData = exceptions; // Cache the data
 
             let tableHTML = `
                 <div class="overflow-x-auto">
@@ -1534,31 +1517,38 @@ const renderExceptionsReport = () => {
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
-                                ${status === 'Pending' ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>' : ''}
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                             </tr>
                         </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-            `;
+                        <tbody class="bg-white divide-y divide-gray-200">`;
 
             if (exceptions.length === 0) {
                 tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No exceptions found for the selected filters.</td></tr>`;
             } else {
                 exceptions.forEach(ex => {
+                    let details = ex.details;
+                    if (ex.status === 'Resolved' && ex.resolutionNotes) {
+                        details += `<br><strong class="text-green-700">Resolution:</strong> ${ex.resolutionNotes}`;
+                    } else if (ex.status === 'Corrected' && ex.correctionRemarks) {
+                         details += `<br><strong class="text-blue-700">Correction:</strong> ${ex.correctionRemarks}`;
+                    }
+
+                    let actionButton = '';
+                    if (ex.status === 'Pending') {
+                        actionButton = `<button class="correct-btn text-blue-600 hover:text-blue-900" data-id="${ex.id}">Correct</button>`;
+                    } else if (ex.status === 'Corrected') {
+                        actionButton = `<button class="resolve-btn text-green-600 hover:text-green-900" data-id="${ex.id}">Resolve</button>`;
+                    }
+
                     tableHTML += `
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">${formatDate(ex.date)}</td>
                             <td class="px-6 py-4 whitespace-nowrap">${ex.userName}</td>
                             <td class="px-6 py-4 whitespace-nowrap">${ex.department}</td>
                             <td class="px-6 py-4 whitespace-nowrap"><span class="font-semibold">${ex.type}</span></td>
-                            <td class="px-6 py-4 text-sm text-gray-600">${ex.details}</td>
-                            ${status === 'Pending' ? `
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                                    <button class="approve-btn text-green-600 hover:text-green-900" data-id="${ex.id}">Approve</button>
-                                    <button class="reject-btn text-red-600 hover:text-red-900" data-id="${ex.id}">Reject</button>
-                                </td>
-                            ` : ''}
-                        </tr>
-                    `;
+                            <td class="px-6 py-4 text-sm text-gray-600">${details}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">${actionButton}</td>
+                        </tr>`;
                 });
             }
 
@@ -1566,11 +1556,17 @@ const renderExceptionsReport = () => {
             dataContainer.innerHTML = tableHTML;
 
             // Add event listeners to the new buttons
-            document.querySelectorAll('.approve-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => handleUpdateException(e.target.dataset.id, 'Approved'));
+            document.querySelectorAll('.correct-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const exception = currentExceptionsData.find(ex => ex.id === e.target.dataset.id);
+                    if (exception) openCorrectAttendanceModal(exception);
+                });
             });
-            document.querySelectorAll('.reject-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => handleUpdateException(e.target.dataset.id, 'Rejected'));
+            document.querySelectorAll('.resolve-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                     const exception = currentExceptionsData.find(ex => ex.id === e.target.dataset.id);
+                    if (exception) openResolveExceptionModal(exception);
+                });
             });
 
         } catch (error) {
@@ -1588,8 +1584,8 @@ const renderExceptionsReport = () => {
                 <label for="report-status" class="block text-sm font-medium text-gray-700">Status</label>
                 <select id="report-status" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
                     <option value="Pending" selected>Pending</option>
-                    <option value="Approved">Approved</option>
-                    <option value="Rejected">Rejected</option>
+                    <option value="Corrected">Corrected</option>
+                    <option value="Resolved">Resolved</option>
                 </select>
             </div>
             ${hasGlobalAccess ? `
@@ -2231,6 +2227,128 @@ const renderReports = async () => {
 
 
 // --- UI & Modal Logic ---
+
+// =================================================================================
+// START: NEW FUNCTIONS FOR ATTENDANCE EXCEPTION WORKFLOW
+// =================================================================================
+
+const openCorrectAttendanceModal = async (exception) => {
+    correctAttendanceForm.reset();
+    
+    // Populate the modal with data from the exception object
+    document.getElementById('correct-exception-id').value = exception.id;
+    document.getElementById('correct-user-id').value = exception.userId;
+    document.getElementById('correct-date').value = exception.date;
+    document.getElementById('correct-employee-name').textContent = exception.userName;
+    document.getElementById('correct-exception-date').textContent = formatDate(exception.date);
+
+    // Find the original attendance record to pre-fill times
+    const attendanceQuery = query(
+        collection(db, 'attendance'), 
+        where('userId', '==', exception.userId), 
+        where('date', '==', exception.date), 
+        limit(1)
+    );
+    const attendanceSnapshot = await getDocs(attendanceQuery);
+    
+    if (!attendanceSnapshot.empty) {
+        const attendanceRecord = attendanceSnapshot.docs[0].data();
+        document.getElementById('correct-attendance-doc-id').value = attendanceSnapshot.docs[0].id;
+        if (attendanceRecord.checkInTime) {
+            document.getElementById('correct-check-in').value = new Date(attendanceRecord.checkInTime.seconds * 1000).toTimeString().substring(0,5);
+        }
+        if (attendanceRecord.checkOutTime) {
+            document.getElementById('correct-check-out').value = new Date(attendanceRecord.checkOutTime.seconds * 1000).toTimeString().substring(0,5);
+        }
+    } else {
+        // If no record exists (e.g., for 'Absent'), clear the doc ID
+        document.getElementById('correct-attendance-doc-id').value = '';
+    }
+
+    correctAttendanceModal.classList.remove('hidden');
+};
+
+const closeCorrectAttendanceModal = () => correctAttendanceModal.classList.add('hidden');
+
+const handleCorrectAttendanceSubmit = async (e) => {
+    e.preventDefault();
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+
+    const payload = {
+        exceptionId: document.getElementById('correct-exception-id').value,
+        attendanceDocId: document.getElementById('correct-attendance-doc-id').value, // Can be empty
+        userId: document.getElementById('correct-user-id').value,
+        date: document.getElementById('correct-date').value,
+        checkIn: document.getElementById('correct-check-in').value,
+        checkOut: document.getElementById('correct-check-out').value,
+        remarks: document.getElementById('correct-remarks').value,
+        correctedBy: currentUser.email
+    };
+
+    try {
+        // We will create this Cloud Function in the next step
+        const correctAttendanceRecord = httpsCallable(functions, 'correctAttendanceRecord');
+        const result = await correctAttendanceRecord(payload);
+        
+        alert(result.data.message);
+        closeCorrectAttendanceModal();
+        loadReport('exceptions'); // Refresh the report view
+    } catch (error) {
+        console.error("Error correcting attendance record:", error);
+        alert(`Failed to save correction: ${error.message}`);
+    } finally {
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Save Correction';
+    }
+};
+
+const openResolveExceptionModal = (exception) => {
+    resolveExceptionForm.reset();
+    document.getElementById('resolve-exception-id').value = exception.id;
+    document.getElementById('resolve-employee-name').textContent = exception.userName;
+    document.getElementById('resolve-exception-date').textContent = formatDate(exception.date);
+    document.getElementById('resolve-exception-type').textContent = exception.type;
+    resolveExceptionModal.classList.remove('hidden');
+};
+
+const closeResolveExceptionModal = () => resolveExceptionModal.classList.add('hidden');
+
+const handleResolveExceptionSubmit = async (e) => {
+    e.preventDefault();
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+
+    const exceptionId = document.getElementById('resolve-exception-id').value;
+    const notes = document.getElementById('resolve-notes').value;
+
+    try {
+        const exceptionRef = doc(db, 'attendanceExceptions', exceptionId);
+        await updateDoc(exceptionRef, {
+            status: 'Resolved',
+            resolutionNotes: notes,
+            resolvedBy: currentUser.email,
+            resolvedAt: serverTimestamp()
+        });
+        
+        alert('Exception has been successfully resolved.');
+        closeResolveExceptionModal();
+        loadReport('exceptions'); // Refresh the report view
+    } catch (error) {
+        console.error("Error resolving exception:", error);
+        alert(`Failed to resolve exception: ${error.message}`);
+    } finally {
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Mark as Resolved';
+    }
+};
+
+// =================================================================================
+// END: NEW FUNCTIONS FOR ATTENDANCE EXCEPTION WORKFLOW
+// =================================================================================
+
 
 const openRequestDetailsModal = async (requestId, collectionName, isApproval = false) => {
     const modal = document.getElementById('view-request-modal');
@@ -3279,7 +3397,13 @@ purchaseRequestModalCloseButton.addEventListener('click', closePurchaseRequestMo
 purchaseRequestModalCancelButton.addEventListener('click', closePurchaseRequestModal);
 purchaseRequestForm.addEventListener('submit', handlePurchaseRequestSubmit);
 document.getElementById('view-request-modal-close-button').addEventListener('click', closeRequestDetailsModal);
-
+// Add these to the bottom of the main Event Listeners section
+correctAttendanceModalCloseButton.addEventListener('click', closeCorrectAttendanceModal);
+correctAttendanceModalCancelButton.addEventListener('click', closeCorrectAttendanceModal);
+correctAttendanceForm.addEventListener('submit', handleCorrectAttendanceSubmit);
+resolveExceptionModalCloseButton.addEventListener('click', closeResolveExceptionModal);
+resolveExceptionModalCancelButton.addEventListener('click', closeResolveExceptionModal);
+resolveExceptionForm.addEventListener('submit', handleResolveExceptionSubmit);
 
 document.getElementById('request-type').addEventListener('change', (e) => {
     const selectedOption = e.target.options[e.target.selectedIndex];

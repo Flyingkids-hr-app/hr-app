@@ -248,6 +248,102 @@ exports.getLiveTeamStatus = onCall({
     }
 });
 
+// =================================================================================
+// HTTPS CALLABLE FUNCTION: correctAttendanceRecord (NEW)
+// =================================================================================
+exports.correctAttendanceRecord = onCall({
+    timeoutSeconds: 60,
+}, async (request) => {
+    // 1. --- AUTHENTICATION & PERMISSION CHECK ---
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const managerEmail = request.auth.token.email;
+    const managerRoles = request.auth.token.roles || [];
+    const isAuthorized = managerRoles.some(role => 
+        ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Admin'].includes(role)
+    );
+    if (!isAuthorized) {
+        throw new HttpsError('permission-denied', 'You do not have permission to perform this action.');
+    }
+
+    // 2. --- INPUT VALIDATION ---
+    const { exceptionId, attendanceDocId, userId, date, checkIn, checkOut, remarks } = request.data;
+    if (!exceptionId || !userId || !date || !remarks) {
+        throw new HttpsError('invalid-argument', 'Missing required data for correction.');
+    }
+
+    try {
+        // 3. --- FIRESTORE TRANSACTION ---
+        // A transaction ensures both the attendance and the exception are updated together, or not at all.
+        await db.runTransaction(async (transaction) => {
+            const exceptionRef = db.collection('attendanceExceptions').doc(exceptionId);
+            const exceptionDoc = await transaction.get(exceptionRef);
+
+            if (!exceptionDoc.exists) {
+                throw new HttpsError('not-found', 'The specified exception does not exist.');
+            }
+            if (exceptionDoc.data().status !== 'Pending') {
+                 throw new HttpsError('failed-precondition', 'This exception is no longer pending and cannot be corrected.');
+            }
+
+            const userDoc = await db.collection('users').doc(userId).get();
+            if (!userDoc.exists) {
+                throw new HttpsError('not-found', 'The employee profile could not be found.');
+            }
+            const userData = userDoc.data();
+
+            // Prepare the data for the attendance record
+            const attendanceData = {
+                userId: userId,
+                userName: userData.name,
+                department: userData.primaryDepartment,
+                date: date,
+            };
+
+            // Convert HH:mm time strings to full Firestore Timestamps
+            if (checkIn) {
+                attendanceData.checkInTime = admin.firestore.Timestamp.fromDate(moment.tz(`${date} ${checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur').toDate());
+            } else {
+                attendanceData.checkInTime = null;
+            }
+            if (checkOut) {
+                attendanceData.checkOutTime = admin.firestore.Timestamp.fromDate(moment.tz(`${date} ${checkOut}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur').toDate());
+            } else {
+                attendanceData.checkOutTime = null;
+            }
+
+            // If an attendance doc already exists (e.g., for 'Late' or 'Missed Checkout'), update it.
+            // If it doesn't exist (e.g., for 'Absent'), create a new one.
+            if (attendanceDocId) {
+                const attendanceRef = db.collection('attendance').doc(attendanceDocId);
+                transaction.update(attendanceRef, attendanceData);
+            } else {
+                const newAttendanceRef = db.collection('attendance').doc(); // Create a new doc
+                transaction.set(newAttendanceRef, attendanceData);
+            }
+
+            // Finally, update the exception itself to mark it as 'Corrected'.
+            transaction.update(exceptionRef, {
+                status: 'Corrected',
+                correctionRemarks: remarks,
+                correctedBy: managerEmail,
+                correctedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        console.log(`Attendance for ${userId} on ${date} successfully corrected by ${managerEmail}.`);
+        return { success: true, message: "Attendance record corrected successfully." };
+
+    } catch (error) {
+        console.error("Error in correctAttendanceRecord transaction:", error);
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        throw new HttpsError("internal", "An unexpected error occurred while saving the correction.", error);
+    }
+});
+
 
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: generatePayrollReport (NEW)

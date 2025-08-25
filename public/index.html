@@ -313,6 +313,84 @@
         </div>
     </div>
 
+<!-- ======================================================================= -->
+<!-- START: NEW MODALS FOR ATTENDANCE EXCEPTION WORKFLOW -->
+<!-- ======================================================================= -->
+
+<!-- Correct Attendance Modal -->
+<div id="correct-attendance-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+    <div class="relative mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-center border-b pb-3">
+            <h3 class="text-2xl font-bold text-gray-900">Correct Attendance Record</h3>
+            <button id="correct-attendance-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+        </div>
+        <div class="mt-5">
+            <form id="correct-attendance-form">
+                <input type="hidden" id="correct-exception-id">
+                <input type="hidden" id="correct-attendance-doc-id">
+                <input type="hidden" id="correct-user-id">
+                <input type="hidden" id="correct-date">
+                
+                <div class="space-y-4">
+                    <p class="text-sm"><strong>Employee:</strong> <span id="correct-employee-name"></span></p>
+                    <p class="text-sm"><strong>Date:</strong> <span id="correct-exception-date"></span></p>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="correct-check-in" class="block text-sm font-medium text-gray-700">Check-in Time</label>
+                            <input type="time" id="correct-check-in" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                        <div>
+                            <label for="correct-check-out" class="block text-sm font-medium text-gray-700">Check-out Time</label>
+                            <input type="time" id="correct-check-out" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                    </div>
+                    <div>
+                        <label for="correct-remarks" class="block text-sm font-medium text-gray-700">Correction Remarks</label>
+                        <textarea id="correct-remarks" rows="3" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm"></textarea>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                    <button id="correct-attendance-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Save Correction</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Resolve Exception Modal -->
+<div id="resolve-exception-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+    <div class="relative mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-center border-b pb-3">
+            <h3 class="text-2xl font-bold text-gray-900">Resolve Attendance Exception</h3>
+            <button id="resolve-exception-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+        </div>
+        <div class="mt-5">
+            <form id="resolve-exception-form">
+                <input type="hidden" id="resolve-exception-id">
+                <div class="space-y-4">
+                    <p class="text-sm"><strong>Employee:</strong> <span id="resolve-employee-name"></span></p>
+                    <p class="text-sm"><strong>Date:</strong> <span id="resolve-exception-date"></span></p>
+                    <p class="text-sm"><strong>Exception Type:</strong> <span id="resolve-exception-type"></span></p>
+                    <div>
+                        <label for="resolve-notes" class="block text-sm font-medium text-gray-700">Resolution Notes</label>
+                        <textarea id="resolve-notes" rows="4" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="e.g., Verbal warning given. Employee has submitted leave form for this date."></textarea>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                    <button id="resolve-exception-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Mark as Resolved</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ======================================================================= -->
+<!-- END: NEW MODALS -->
+<!-- ======================================================================= -->
+
 
     <!-- Your App's Logic -->
     <script type="module" src="app.js"></script>
