@@ -197,6 +197,44 @@ const getCurrentLocation = () => {
     });
 };
 
+// This is a new helper function for the dashboard
+const updateDashboardLeaveBalances = async (year) => {
+    const container = document.getElementById('dashboard-leave-balances-list');
+    if (!container) return; // Exit if the container isn't on the page
+
+    container.innerHTML = '<p class="text-gray-500">Loading balances...</p>';
+
+    try {
+        const quotaRef = doc(db, 'users', currentUser.email, 'leaveQuotas', String(year));
+        const quotaDoc = await getDoc(quotaRef);
+        const leaveBalances = quotaDoc.exists() ? quotaDoc.data() : {};
+
+        let leaveHtml = '';
+        const quotaTypes = appConfig.requestTypes.filter(type => type.hasQuota);
+
+        if (quotaTypes.length === 0) {
+            leaveHtml = '<p class="text-gray-500">No leave quotas set.</p>';
+        } else {
+            quotaTypes.forEach(type => {
+                const quotaKey = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                const takenKey = `${quotaKey}-taken`;
+                const total = leaveBalances[quotaKey] || 0;
+                const taken = leaveBalances[takenKey] || 0;
+                const balance = total - taken;
+                leaveHtml += `
+                    <div class="flex justify-between items-center py-2 border-b">
+                        <span class="text-gray-700">${type.name}</span>
+                        <span class="font-semibold text-gray-900">${balance} / ${total} hours</span>
+                    </div>`;
+            });
+        }
+        container.innerHTML = leaveHtml;
+    } catch (error) {
+        console.error(`Error fetching leave balances for year ${year}:`, error);
+        container.innerHTML = '<p class="text-red-500">Could not load balances.</p>';
+    }
+};
+
 
 // --- Data & Auth ---
 const handleSignIn = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { console.error(e); } };
@@ -243,53 +281,39 @@ const fetchUserLeaveQuota = async (userId) => {
 };
 
 // --- Page Rendering ---
-
+// Replace the broken renderDashboard function with this corrected version
 const renderDashboard = async () => {
     pageTitle.textContent = 'Dashboard';
     contentArea.innerHTML = `<div class="p-6">Loading Dashboard...</div>`;
 
-    const getMyLeaveBalances = async () => {
-        const currentYear = new Date().getFullYear();
-        const quotaRef = doc(db, 'users', currentUser.email, 'leaveQuotas', String(currentYear));
-        const quotaDoc = await getDoc(quotaRef);
-        return quotaDoc.exists() ? quotaDoc.data() : {};
-    };
-
+    // Define the helper functions needed for the dashboard cards ONCE.
     const getManagerApprovalsCount = async () => {
         if (!userData.managedDepartments || userData.managedDepartments.length === 0) return 0;
-
         const collectionsToQuery = ['requests', 'claims', 'purchaseRequests'];
         let totalPending = 0;
-
         const queryPromises = collectionsToQuery.map(coll => {
             const collRef = collection(db, coll);
             const q = query(collRef, where('status', '==', 'Pending'), where('department', 'in', userData.managedDepartments));
             return getDocs(q);
         });
-
         const snapshots = await Promise.all(queryPromises);
         snapshots.forEach(snapshot => {
             totalPending += snapshot.size;
         });
-
         return totalPending;
     };
-
     const getFinanceClaims = async () => {
         const claimsRef = collection(db, 'claims');
         const q = query(claimsRef, where('status', '==', 'Approved'));
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => doc.data());
     };
-    
-    // *** NEW FUNCTION for Purchaser Dashboard Widget ***
     const getPurchaserApprovals = async () => {
         const purchaseRef = collection(db, 'purchaseRequests');
         const q = query(purchaseRef, where('status', 'in', ['Approved', 'Processing']));
         const snapshot = await getDocs(q);
-        return snapshot.size; // Just need the count
+        return snapshot.size;
     };
-
     const getMyAssignedJobs = async () => {
         const supportRef = collection(db, 'supportRequests');
         const q = query(supportRef, where('assigneeId', '==', currentUser.email), where('status', '!=', 'Closed'));
@@ -298,66 +322,51 @@ const renderDashboard = async () => {
     };
 
     try {
-        // *** MODIFICATION: Add purchaserApprovalsCount to Promise.all ***
-        const [leaveBalances, managerApprovalsCount, financeClaims, myAssignedJobs, purchaserApprovalsCount] = await Promise.all([
-            getMyLeaveBalances(),
+        const [managerApprovalsCount, financeClaims, myAssignedJobs, purchaserApprovalsCount] = await Promise.all([
             (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) ? getManagerApprovalsCount() : Promise.resolve(0),
             userData.roles.includes('Finance') ? getFinanceClaims() : Promise.resolve([]),
             getMyAssignedJobs(),
             userData.roles.includes('Purchaser') ? getPurchaserApprovals() : Promise.resolve(0)
         ]);
+        
+        const currentYear = new Date().getFullYear();
+        const yearOptions = [currentYear, currentYear + 1, currentYear + 2].map(y => `<option value="${y}">${y}</option>`).join('');
 
-        let dashboardHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
-
-        dashboardHtml += `
-            <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow">
-                <h2 class="text-2xl font-bold text-gray-800">Welcome back, ${userData.name}!</h2>
-                <p class="text-gray-600">Here's your summary for today, ${new Date().toLocaleDateString()}.</p>
-            </div>
-        `;
-
-        let leaveHtml = '';
-        appConfig.requestTypes.forEach(type => {
-            if (type.hasQuota) {
-                const quotaKey = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
-                const takenKey = `${quotaKey}-taken`;
-                const total = leaveBalances[quotaKey] || 0;
-                const taken = leaveBalances[takenKey] || 0;
-                const balance = total - taken;
-                leaveHtml += `<div class="flex justify-between items-center py-2 border-b">
-                                        <span class="text-gray-700">${type.name}</span>
-                                        <span class="font-semibold text-gray-900">${balance} / ${total} hours</span>
-                                    </div>`;
-            }
-        });
-        dashboardHtml += `
-            <div class="bg-white p-6 rounded-lg shadow">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">My Leave Balances</h3>
-                <div class="space-y-2">${leaveHtml || '<p class="text-gray-500">No leave quotas set.</p>'}</div>
-            </div>
-        `;
-
-         dashboardHtml += `
-            <div class="bg-white p-6 rounded-lg shadow">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
-                <div class="grid grid-cols-1 gap-4">
-                    <button onclick="navigateTo('leave-ot')" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors">New Leave/OT Request</button>
-                    <button onclick="navigateTo('claims')" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700 transition-colors">New Expense Claim</button>
-                    <button onclick="navigateTo('attendance')" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition-colors">Record Attendance</button>
+        let dashboardHtml = `
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow">
+                    <h2 class="text-2xl font-bold text-gray-800">Welcome back, ${userData.name}!</h2>
+                    <p class="text-gray-600">Here's your summary for today, ${new Date().toLocaleDateString()}.</p>
                 </div>
-            </div>
-        `;
+                
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">My Leave Balances</h3>
+                        <select id="dashboard-leave-year-selector" class="py-1 px-2 border border-gray-300 bg-white rounded-md shadow-sm text-sm">
+                            ${yearOptions}
+                        </select>
+                    </div>
+                    <div id="dashboard-leave-balances-list" class="space-y-2">
+                        </div>
+                </div>
 
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
+                    <div class="grid grid-cols-1 gap-4">
+                        <button onclick="navigateTo('leave-ot')" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors">New Leave/OT Request</button>
+                        <button onclick="navigateTo('claims')" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700 transition-colors">New Expense Claim</button>
+                        <button onclick="navigateTo('attendance')" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition-colors">Record Attendance</button>
+                    </div>
+                </div>`;
+        
         if (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) {
-             dashboardHtml += `
+            dashboardHtml += `
                 <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
                     <h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3>
                     <p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p>
                     <p class="text-gray-500">items need your attention.</p>
-                </div>
-            `;
+                </div>`;
         }
-        
         if (userData.roles.includes('Finance')) {
             const totalAmount = financeClaims.reduce((sum, claim) => sum + claim.amount, 0);
             dashboardHtml += `
@@ -365,40 +374,37 @@ const renderDashboard = async () => {
                     <h3 class="text-lg font-semibold text-gray-800">Claims Awaiting Payout</h3>
                     <p class="text-5xl font-bold text-red-600 mt-4">${financeClaims.length}</p>
                     <p class="text-gray-600 font-semibold">Totaling $${totalAmount.toFixed(2)}</p>
-                </div>
-            `;
+                </div>`;
         }
-
-        // *** NEW: Add dashboard card for Purchaser ***
         if (userData.roles.includes('Purchaser')) {
             dashboardHtml += `
                 <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
                     <h3 class="text-lg font-semibold text-gray-800">Purchase Requests to Process</h3>
                     <p class="text-5xl font-bold text-cyan-600 mt-4">${purchaserApprovalsCount}</p>
                     <p class="text-gray-500">items are waiting for processing.</p>
-                </div>
-            `;
+                </div>`;
         }
-
         if (myAssignedJobs.length > 0) {
             dashboardHtml += `
                 <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('my-job')">
                     <h3 class="text-lg font-semibold text-gray-800">My Assigned Jobs</h3>
                     <p class="text-5xl font-bold text-teal-600 mt-4">${myAssignedJobs.length}</p>
                     <p class="text-gray-500">open support tickets require your action.</p>
-                </div>
-            `;
+                </div>`;
         }
-
         dashboardHtml += '</div>';
         contentArea.innerHTML = dashboardHtml;
+        
+        // Add event listener and load initial data for the leave balance widget
+        const yearSelector = document.getElementById('dashboard-leave-year-selector');
+        yearSelector.addEventListener('change', (e) => updateDashboardLeaveBalances(e.target.value));
+        updateDashboardLeaveBalances(currentYear); // Load current year's data by default
 
     } catch (error) {
         console.error("Error building dashboard:", error);
         contentArea.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-lg">Failed to load dashboard. ${error.message}</div>`;
     }
 };
-
 
 const renderMyDocuments = async () => {
     pageTitle.textContent = 'My Documents';
@@ -2811,6 +2817,7 @@ const openRequestModal = () => {
 
 const closeRequestModal = () => requestModal.classList.add('hidden');
 
+// Replace the broken handleRequestSubmit function with this corrected version
 const handleRequestSubmit = async (e) => {
     e.preventDefault();
     const submitButton = e.target.querySelector('button[type="submit"]');
@@ -2832,19 +2839,27 @@ const handleRequestSubmit = async (e) => {
         return;
     }
     
+    // Check if the leave type has a quota and validate against the correct year's balance.
     const selectedTypeConfig = appConfig.requestTypes.find(rt => rt.name === type);
     if (selectedTypeConfig && selectedTypeConfig.hasQuota) {
+        const requestYear = new Date(startDate).getFullYear(); // Get year from the request start date
+
+        // Fetch the correct quota document for the year of the request
+        const quotaRef = doc(db, 'users', currentUser.email, 'leaveQuotas', String(requestYear));
+        const quotaDoc = await getDoc(quotaRef);
+        const quotaDataForYear = quotaDoc.exists() ? quotaDoc.data() : {};
+
         const quotaKey = `edit-${type.toLowerCase().replace(/ /g, '-')}`;
         const takenKey = `${quotaKey}-taken`;
-        const quota = userLeaveQuota[quotaKey] || 0;
-        const taken = userLeaveQuota[takenKey] || 0;
+        const quota = quotaDataForYear[quotaKey] || 0;
+        const taken = quotaDataForYear[takenKey] || 0;
         const balance = quota - taken;
 
         if (parseInt(hours, 10) > balance) {
-            alert(`Submission Failed: You cannot apply for ${hours} hours. Your remaining balance for this leave type is only ${balance} hours.`);
+            alert(`Submission Failed for year ${requestYear}: You cannot apply for ${hours} hours. Your remaining balance for this leave type is only ${balance} hours.`);
             submitButton.disabled = false;
             submitButton.innerHTML = 'Submit Request';
-            return; 
+            return;
         }
     }
 
@@ -2856,6 +2871,7 @@ const handleRequestSubmit = async (e) => {
         documentUrl: null
     };
 
+    // Define the saveRequest helper function ONCE.
     const saveRequest = async () => {
         try {
             await addDoc(collection(db, 'requests'), newRequest);
@@ -2870,6 +2886,7 @@ const handleRequestSubmit = async (e) => {
         }
     };
 
+    // Logic for handling file upload (if it exists) or saving directly.
     if (documentFile) {
         const progressIndicator = document.getElementById('request-upload-progress');
         const filePath = `leave-documents/${currentUser.uid}/${Date.now()}_${documentFile.name}`;
