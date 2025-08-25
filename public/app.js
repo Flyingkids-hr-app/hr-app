@@ -197,6 +197,44 @@ const getCurrentLocation = () => {
     });
 };
 
+// This is a new helper function for the dashboard
+const updateDashboardLeaveBalances = async (year) => {
+    const container = document.getElementById('dashboard-leave-balances-list');
+    if (!container) return; // Exit if the container isn't on the page
+
+    container.innerHTML = '<p class="text-gray-500">Loading balances...</p>';
+
+    try {
+        const quotaRef = doc(db, 'users', currentUser.email, 'leaveQuotas', String(year));
+        const quotaDoc = await getDoc(quotaRef);
+        const leaveBalances = quotaDoc.exists() ? quotaDoc.data() : {};
+
+        let leaveHtml = '';
+        const quotaTypes = appConfig.requestTypes.filter(type => type.hasQuota);
+
+        if (quotaTypes.length === 0) {
+            leaveHtml = '<p class="text-gray-500">No leave quotas set.</p>';
+        } else {
+            quotaTypes.forEach(type => {
+                const quotaKey = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                const takenKey = `${quotaKey}-taken`;
+                const total = leaveBalances[quotaKey] || 0;
+                const taken = leaveBalances[takenKey] || 0;
+                const balance = total - taken;
+                leaveHtml += `
+                    <div class="flex justify-between items-center py-2 border-b">
+                        <span class="text-gray-700">${type.name}</span>
+                        <span class="font-semibold text-gray-900">${balance} / ${total} hours</span>
+                    </div>`;
+            });
+        }
+        container.innerHTML = leaveHtml;
+    } catch (error) {
+        console.error(`Error fetching leave balances for year ${year}:`, error);
+        container.innerHTML = '<p class="text-red-500">Could not load balances.</p>';
+    }
+};
+
 
 // --- Data & Auth ---
 const handleSignIn = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { console.error(e); } };
@@ -243,53 +281,39 @@ const fetchUserLeaveQuota = async (userId) => {
 };
 
 // --- Page Rendering ---
-
+// Replace the broken renderDashboard function with this corrected version
 const renderDashboard = async () => {
     pageTitle.textContent = 'Dashboard';
     contentArea.innerHTML = `<div class="p-6">Loading Dashboard...</div>`;
 
-    const getMyLeaveBalances = async () => {
-        const currentYear = new Date().getFullYear();
-        const quotaRef = doc(db, 'users', currentUser.email, 'leaveQuotas', String(currentYear));
-        const quotaDoc = await getDoc(quotaRef);
-        return quotaDoc.exists() ? quotaDoc.data() : {};
-    };
-
+    // Define the helper functions needed for the dashboard cards ONCE.
     const getManagerApprovalsCount = async () => {
         if (!userData.managedDepartments || userData.managedDepartments.length === 0) return 0;
-
         const collectionsToQuery = ['requests', 'claims', 'purchaseRequests'];
         let totalPending = 0;
-
         const queryPromises = collectionsToQuery.map(coll => {
             const collRef = collection(db, coll);
             const q = query(collRef, where('status', '==', 'Pending'), where('department', 'in', userData.managedDepartments));
             return getDocs(q);
         });
-
         const snapshots = await Promise.all(queryPromises);
         snapshots.forEach(snapshot => {
             totalPending += snapshot.size;
         });
-
         return totalPending;
     };
-
     const getFinanceClaims = async () => {
         const claimsRef = collection(db, 'claims');
         const q = query(claimsRef, where('status', '==', 'Approved'));
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => doc.data());
     };
-    
-    // *** NEW FUNCTION for Purchaser Dashboard Widget ***
     const getPurchaserApprovals = async () => {
         const purchaseRef = collection(db, 'purchaseRequests');
         const q = query(purchaseRef, where('status', 'in', ['Approved', 'Processing']));
         const snapshot = await getDocs(q);
-        return snapshot.size; // Just need the count
+        return snapshot.size;
     };
-
     const getMyAssignedJobs = async () => {
         const supportRef = collection(db, 'supportRequests');
         const q = query(supportRef, where('assigneeId', '==', currentUser.email), where('status', '!=', 'Closed'));
@@ -298,66 +322,51 @@ const renderDashboard = async () => {
     };
 
     try {
-        // *** MODIFICATION: Add purchaserApprovalsCount to Promise.all ***
-        const [leaveBalances, managerApprovalsCount, financeClaims, myAssignedJobs, purchaserApprovalsCount] = await Promise.all([
-            getMyLeaveBalances(),
+        const [managerApprovalsCount, financeClaims, myAssignedJobs, purchaserApprovalsCount] = await Promise.all([
             (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) ? getManagerApprovalsCount() : Promise.resolve(0),
             userData.roles.includes('Finance') ? getFinanceClaims() : Promise.resolve([]),
             getMyAssignedJobs(),
             userData.roles.includes('Purchaser') ? getPurchaserApprovals() : Promise.resolve(0)
         ]);
+        
+        const currentYear = new Date().getFullYear();
+        const yearOptions = [currentYear, currentYear + 1, currentYear + 2].map(y => `<option value="${y}">${y}</option>`).join('');
 
-        let dashboardHtml = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
-
-        dashboardHtml += `
-            <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow">
-                <h2 class="text-2xl font-bold text-gray-800">Welcome back, ${userData.name}!</h2>
-                <p class="text-gray-600">Here's your summary for today, ${new Date().toLocaleDateString()}.</p>
-            </div>
-        `;
-
-        let leaveHtml = '';
-        appConfig.requestTypes.forEach(type => {
-            if (type.hasQuota) {
-                const quotaKey = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
-                const takenKey = `${quotaKey}-taken`;
-                const total = leaveBalances[quotaKey] || 0;
-                const taken = leaveBalances[takenKey] || 0;
-                const balance = total - taken;
-                leaveHtml += `<div class="flex justify-between items-center py-2 border-b">
-                                        <span class="text-gray-700">${type.name}</span>
-                                        <span class="font-semibold text-gray-900">${balance} / ${total} hours</span>
-                                    </div>`;
-            }
-        });
-        dashboardHtml += `
-            <div class="bg-white p-6 rounded-lg shadow">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">My Leave Balances</h3>
-                <div class="space-y-2">${leaveHtml || '<p class="text-gray-500">No leave quotas set.</p>'}</div>
-            </div>
-        `;
-
-         dashboardHtml += `
-            <div class="bg-white p-6 rounded-lg shadow">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
-                <div class="grid grid-cols-1 gap-4">
-                    <button onclick="navigateTo('leave-ot')" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors">New Leave/OT Request</button>
-                    <button onclick="navigateTo('claims')" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700 transition-colors">New Expense Claim</button>
-                    <button onclick="navigateTo('attendance')" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition-colors">Record Attendance</button>
+        let dashboardHtml = `
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow">
+                    <h2 class="text-2xl font-bold text-gray-800">Welcome back, ${userData.name}!</h2>
+                    <p class="text-gray-600">Here's your summary for today, ${new Date().toLocaleDateString()}.</p>
                 </div>
-            </div>
-        `;
+                
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">My Leave Balances</h3>
+                        <select id="dashboard-leave-year-selector" class="py-1 px-2 border border-gray-300 bg-white rounded-md shadow-sm text-sm">
+                            ${yearOptions}
+                        </select>
+                    </div>
+                    <div id="dashboard-leave-balances-list" class="space-y-2">
+                        </div>
+                </div>
 
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
+                    <div class="grid grid-cols-1 gap-4">
+                        <button onclick="navigateTo('leave-ot')" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors">New Leave/OT Request</button>
+                        <button onclick="navigateTo('claims')" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700 transition-colors">New Expense Claim</button>
+                        <button onclick="navigateTo('attendance')" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition-colors">Record Attendance</button>
+                    </div>
+                </div>`;
+        
         if (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) {
-             dashboardHtml += `
+            dashboardHtml += `
                 <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
                     <h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3>
                     <p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p>
                     <p class="text-gray-500">items need your attention.</p>
-                </div>
-            `;
+                </div>`;
         }
-        
         if (userData.roles.includes('Finance')) {
             const totalAmount = financeClaims.reduce((sum, claim) => sum + claim.amount, 0);
             dashboardHtml += `
@@ -365,40 +374,37 @@ const renderDashboard = async () => {
                     <h3 class="text-lg font-semibold text-gray-800">Claims Awaiting Payout</h3>
                     <p class="text-5xl font-bold text-red-600 mt-4">${financeClaims.length}</p>
                     <p class="text-gray-600 font-semibold">Totaling $${totalAmount.toFixed(2)}</p>
-                </div>
-            `;
+                </div>`;
         }
-
-        // *** NEW: Add dashboard card for Purchaser ***
         if (userData.roles.includes('Purchaser')) {
             dashboardHtml += `
                 <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
                     <h3 class="text-lg font-semibold text-gray-800">Purchase Requests to Process</h3>
                     <p class="text-5xl font-bold text-cyan-600 mt-4">${purchaserApprovalsCount}</p>
                     <p class="text-gray-500">items are waiting for processing.</p>
-                </div>
-            `;
+                </div>`;
         }
-
         if (myAssignedJobs.length > 0) {
             dashboardHtml += `
                 <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('my-job')">
                     <h3 class="text-lg font-semibold text-gray-800">My Assigned Jobs</h3>
                     <p class="text-5xl font-bold text-teal-600 mt-4">${myAssignedJobs.length}</p>
                     <p class="text-gray-500">open support tickets require your action.</p>
-                </div>
-            `;
+                </div>`;
         }
-
         dashboardHtml += '</div>';
         contentArea.innerHTML = dashboardHtml;
+        
+        // Add event listener and load initial data for the leave balance widget
+        const yearSelector = document.getElementById('dashboard-leave-year-selector');
+        yearSelector.addEventListener('change', (e) => updateDashboardLeaveBalances(e.target.value));
+        updateDashboardLeaveBalances(currentYear); // Load current year's data by default
 
     } catch (error) {
         console.error("Error building dashboard:", error);
         contentArea.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-lg">Failed to load dashboard. ${error.message}</div>`;
     }
 };
-
 
 const renderMyDocuments = async () => {
     pageTitle.textContent = 'My Documents';
@@ -2544,34 +2550,83 @@ const handleDocumentDelete = async (userId, docId, storagePath, callback) => {
 };
 
 
-// Find and replace this entire function
+// Replace the entire openEditModal function in app.js with this new version
 const openEditModal = async (userId) => {
     const userToEdit = allUsers.find(user => user.id === userId);
     if (!userToEdit) { alert("User not found!"); return; }
 
-    // --- Standard fields ---
+    // --- Standard fields (Unchanged) ---
     document.getElementById('edit-user-id').value = userToEdit.id;
     document.getElementById('edit-name').textContent = userToEdit.name;
     document.getElementById('edit-email').textContent = userToEdit.email;
     document.getElementById('edit-status').value = userToEdit.status;
 
-    // --- Leave Quotas ---
-    const currentYear = new Date().getFullYear();
-    document.getElementById('quota-year').textContent = currentYear;
-    const quotaRef = doc(db, 'users', userId, 'leaveQuotas', String(currentYear));
-    const quotaDoc = await getDoc(quotaRef);
-    const quotaData = quotaDoc.exists() ? quotaDoc.data() : {};
+    // --- Leave Quotas with Dropdown Selector ---
+    const year1 = new Date().getFullYear();
+    const years = [year1, year1 + 1, year1 + 2];
+
+    // Fetch data for all three years (this part is unchanged)
+    const quotaRefs = years.map(year => doc(db, 'users', userId, 'leaveQuotas', String(year)));
+    const quotaDocs = await Promise.all(quotaRefs.map(ref => getDoc(ref)));
+    const quotaData = {
+        [years[0]]: quotaDocs[0].exists() ? quotaDocs[0].data() : {},
+        [years[1]]: quotaDocs[1].exists() ? quotaDocs[1].data() : {},
+        [years[2]]: quotaDocs[2].exists() ? quotaDocs[2].data() : {}
+    };
+
     const quotaContainer = document.getElementById('edit-leave-quotas-container');
-    quotaContainer.innerHTML = '';
-    appConfig.requestTypes.forEach(type => {
-        if (type.hasQuota) {
-            const inputId = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
-            const quotaValue = quotaData[inputId] || '';
-            quotaContainer.innerHTML += `<div><label for="${inputId}" class="block text-xs font-medium text-gray-600">${type.name} Quota</label><input type="number" id="${inputId}" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm sm:text-sm" value="${quotaValue}" placeholder="e.g., 112"></div>`;
-        }
+    quotaContainer.innerHTML = ''; // Clear previous content
+
+    // 1. Create the year <select> dropdown
+    const yearOptionsHTML = years.map(year => `<option value="${year}">${year}</option>`).join('');
+    const yearSelectorHTML = `
+        <div class="md:col-span-2 mb-4">
+            <label for="quota-year-selector" class="block text-sm font-medium text-gray-700">Select Year to Edit</label>
+            <select id="quota-year-selector" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                ${yearOptionsHTML}
+            </select>
+        </div>
+    `;
+    quotaContainer.innerHTML += yearSelectorHTML;
+
+    // 2. Create a hidden container for each year's inputs
+    years.forEach((year, index) => {
+        let inputsHTML = '';
+        appConfig.requestTypes.forEach(type => {
+            if (type.hasQuota) {
+                const inputId = `quota-${year}-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                const firestoreFieldName = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                const quotaValue = quotaData[year][firestoreFieldName] || '';
+                inputsHTML += `
+                    <div>
+                        <label for="${inputId}" class="block text-sm font-medium text-gray-600">${type.name} Quota</label>
+                        <input type="number" id="${inputId}" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm sm:text-sm" value="${quotaValue}" placeholder="e.g., 112">
+                    </div>`;
+            }
+        });
+
+        // Apply the grid styling HERE, only to the inputs panel
+        quotaContainer.innerHTML += `
+            <div id="quota-content-${year}" class="year-content-panel md:col-span-2 grid grid-cols-2 gap-4 ${index > 0 ? 'hidden' : ''}">
+                ${inputsHTML}
+            </div>`;
     });
 
-    // --- Department, Roles, Managed Depts ---
+    // 3. Add event listener to handle dropdown switching
+    const yearSelector = document.getElementById('quota-year-selector');
+    yearSelector.addEventListener('change', (e) => {
+        const selectedYear = e.target.value;
+        document.querySelectorAll('.year-content-panel').forEach(panel => {
+            if (panel.id === `quota-content-${selectedYear}`) {
+                panel.classList.remove('hidden');
+            } else {
+                panel.classList.add('hidden');
+            }
+        });
+    });
+
+    // --- The rest of the function is unchanged ---
+    // Department, Roles, Managed Depts
     const deptSelect = document.getElementById('edit-department');
     deptSelect.innerHTML = '';
     appConfig.availableDepartments.forEach(dept => { const option = document.createElement('option'); option.value = dept; option.textContent = dept; if (dept === userToEdit.primaryDepartment) option.selected = true; deptSelect.appendChild(option); });
@@ -2582,12 +2637,11 @@ const openEditModal = async (userId) => {
     managedDeptsContainer.innerHTML = '';
     appConfig.availableDepartments.forEach(dept => { const isChecked = userToEdit.managedDepartments && userToEdit.managedDepartments.includes(dept); managedDeptsContainer.innerHTML += `<label class="flex items-center"><input type="checkbox" class="form-checkbox h-5 w-5 text-indigo-600" value="${dept}" ${isChecked ? 'checked' : ''}><span class="ml-2 text-gray-700">${dept}</span></label>`; });
 
-    // --- NEW: Work Schedule Logic ---
+    // Work Schedule Logic
     const scheduleContainer = document.getElementById('edit-work-schedule-container');
     scheduleContainer.innerHTML = '';
     const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
     const userSchedule = userToEdit.workSchedule || {};
-
     daysOfWeek.forEach(day => {
         const dayData = userSchedule[day] || { active: false, checkIn: '', checkOut: '' };
         scheduleContainer.innerHTML += `
@@ -2604,69 +2658,118 @@ const openEditModal = async (userId) => {
                     <label for="sch-out-${day}" class="text-xs text-gray-500">Check-out</label>
                     <input type="time" id="sch-out-${day}" value="${dayData.checkOut || ''}" class="mt-1 block w-full py-1 px-2 border border-gray-300 rounded-md text-sm">
                 </div>
-            </div>
-        `;
+            </div>`;
     });
 
-    // --- Document Management (Unchanged) ---
+    // Document Management
     const docsListEl = document.getElementById('existing-docs-list');
-    const renderDocs = async () => { /* ... (This inner function remains unchanged) ... */ };
-    await renderDocs(); // We call the original inner function
-    document.getElementById('upload-doc-button').onclick = () => handleDocumentUpload(userId, renderDocs); // This also remains unchanged
+    const renderDocs = async () => {
+        try {
+            const docsQuery = query(collection(db, 'users', userId, 'documents'), orderBy('uploadTimestamp', 'desc'));
+            const docsSnapshot = await getDocs(docsQuery);
+            if (docsSnapshot.empty) {
+                docsListEl.innerHTML = '<p class="text-gray-500 text-center">No documents found.</p>';
+                return;
+            }
+            docsListEl.innerHTML = docsSnapshot.docs.map(docSnap => {
+                const docData = docSnap.data();
+                return `
+                    <div class="flex justify-between items-center bg-white p-2 rounded-md border">
+                        <div class="truncate">
+                            <i class="fas fa-file-alt text-gray-500 mr-2"></i>
+                            <a href="${docData.storageUrl}" target="_blank" class="text-sm text-indigo-600 hover:underline" title="${docData.fileName}">${docData.fileName}</a>
+                        </div>
+                        <button type="button" class="delete-doc-btn text-red-500 hover:text-red-700 ml-2" data-doc-id="${docSnap.id}" data-storage-path="${docData.storagePath}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>`;
+            }).join('');
+            document.querySelectorAll('.delete-doc-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const currentBtn = e.currentTarget;
+                    handleDocumentDelete(userId, currentBtn.dataset.docId, currentBtn.dataset.storagePath, renderDocs);
+                });
+            });
+        } catch (error) {
+            console.error("Error rendering documents:", error);
+            docsListEl.innerHTML = '<p class="text-red-500 text-center">Error loading documents.</p>';
+        }
+    };
+    await renderDocs(); 
+    document.getElementById('upload-doc-button').onclick = () => handleDocumentUpload(userId, renderDocs);
 
     editUserModal.classList.remove('hidden');
 };
 
 const closeEditModal = () => editUserModal.classList.add('hidden');
 
-// Find and replace this entire function
+// Replace the entire handleUpdateUser function in app.js with this new version
 const handleUpdateUser = async (e) => {
-    e.preventDefault();
-    const userId = document.getElementById('edit-user-id').value;
+    e.preventDefault();
+    const userId = document.getElementById('edit-user-id').value;
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
 
-    // --- NEW: Read Work Schedule from form ---
-    const newWorkSchedule = {};
-    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-    daysOfWeek.forEach(day => {
-        const isActive = document.getElementById(`sch-active-${day}`).checked;
-        const checkIn = document.getElementById(`sch-in-${day}`).value;
-        const checkOut = document.getElementById(`sch-out-${day}`).value;
-        newWorkSchedule[day] = {
-            active: isActive,
-            checkIn: isActive ? checkIn : '',
-            checkOut: isActive ? checkOut : ''
-        };
-    });
+    // Read Work Schedule from form
+    const newWorkSchedule = {};
+    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    daysOfWeek.forEach(day => {
+        const isActive = document.getElementById(`sch-active-${day}`).checked;
+        const checkIn = document.getElementById(`sch-in-${day}`).value;
+        const checkOut = document.getElementById(`sch-out-${day}`).value;
+        newWorkSchedule[day] = {
+            active: isActive,
+            checkIn: isActive ? checkIn : '',
+            checkOut: isActive ? checkOut : ''
+        };
+    });
 
-    const updatedUserData = {
-        primaryDepartment: document.getElementById('edit-department').value,
-        status: document.getElementById('edit-status').value,
-        roles: Array.from(document.querySelectorAll('#edit-roles input:checked')).map(i => i.value),
-        managedDepartments: Array.from(document.querySelectorAll('#edit-managed-departments input:checked')).map(i => i.value),
-        workSchedule: newWorkSchedule // Add the new schedule object
-    };
+    const updatedUserData = {
+        primaryDepartment: document.getElementById('edit-department').value,
+        status: document.getElementById('edit-status').value,
+        roles: Array.from(document.querySelectorAll('#edit-roles input:checked')).map(i => i.value),
+        managedDepartments: Array.from(document.querySelectorAll('#edit-managed-departments input:checked')).map(i => i.value),
+        workSchedule: newWorkSchedule
+    };
 
-    try {
-        await updateDoc(doc(db, 'users', userId), updatedUserData);
-    } catch (e) { console.error("Error updating user:", e); alert("Failed to update user details."); return; }
+    try {
+        // --- NEW: Update user doc and all three years of quotas in parallel ---
+        const userUpdatePromise = updateDoc(doc(db, 'users', userId), updatedUserData);
 
-    // --- Leave Quotas (Unchanged) ---
-    const currentYear = new Date().getFullYear();
-    const updatedQuotaData = {};
-    appConfig.requestTypes.forEach(type => {
-        if (type.hasQuota) {
-            const inputId = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
-            const quotaValue = document.getElementById(inputId).value;
-            updatedQuotaData[inputId] = parseInt(quotaValue, 10) || 0;
-        }
-    });
-    try {
-        await setDoc(doc(db, 'users', userId, 'leaveQuotas', String(currentYear)), updatedQuotaData, { merge: true });
-    } catch (e) { console.error("Error updating quota:", e); alert("Failed to update leave quotas."); return; }
+        const year1 = new Date().getFullYear();
+        const years = [year1, year1 + 1, year1 + 2];
+        
+        const quotaUpdatePromises = years.map(year => {
+            const updatedQuotaData = {};
+            appConfig.requestTypes.forEach(type => {
+                if (type.hasQuota) {
+                    const quotaInputId = `quota-${year}-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                    const quotaValue = document.getElementById(quotaInputId).value;
+                    
+                    // The field name in Firestore must not change for other functions to work
+                    const firestoreFieldName = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                    updatedQuotaData[firestoreFieldName] = parseInt(quotaValue, 10) || 0;
+                }
+            });
+            const quotaRef = doc(db, 'users', userId, 'leaveQuotas', String(year));
+            return setDoc(quotaRef, updatedQuotaData, { merge: true });
+        });
 
-    alert('User updated successfully!');
-    closeEditModal();
-    navigateTo('user-management');
+        await Promise.all([userUpdatePromise, ...quotaUpdatePromises]);
+        // --- END OF NEW LOGIC ---
+
+        alert('User updated successfully!');
+        closeEditModal();
+        navigateTo('user-management');
+
+    } catch (e) {
+        console.error("Error updating user details or quotas:", e);
+        alert("Failed to update user. Please check the console for details.");
+    } finally {
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Save Changes';
+    }
 };
 
 const openCreateModal = () => { createUserForm.reset(); createUserModal.classList.remove('hidden'); };
@@ -2714,6 +2817,7 @@ const openRequestModal = () => {
 
 const closeRequestModal = () => requestModal.classList.add('hidden');
 
+// Replace the broken handleRequestSubmit function with this corrected version
 const handleRequestSubmit = async (e) => {
     e.preventDefault();
     const submitButton = e.target.querySelector('button[type="submit"]');
@@ -2735,19 +2839,27 @@ const handleRequestSubmit = async (e) => {
         return;
     }
     
+    // Check if the leave type has a quota and validate against the correct year's balance.
     const selectedTypeConfig = appConfig.requestTypes.find(rt => rt.name === type);
     if (selectedTypeConfig && selectedTypeConfig.hasQuota) {
+        const requestYear = new Date(startDate).getFullYear(); // Get year from the request start date
+
+        // Fetch the correct quota document for the year of the request
+        const quotaRef = doc(db, 'users', currentUser.email, 'leaveQuotas', String(requestYear));
+        const quotaDoc = await getDoc(quotaRef);
+        const quotaDataForYear = quotaDoc.exists() ? quotaDoc.data() : {};
+
         const quotaKey = `edit-${type.toLowerCase().replace(/ /g, '-')}`;
         const takenKey = `${quotaKey}-taken`;
-        const quota = userLeaveQuota[quotaKey] || 0;
-        const taken = userLeaveQuota[takenKey] || 0;
+        const quota = quotaDataForYear[quotaKey] || 0;
+        const taken = quotaDataForYear[takenKey] || 0;
         const balance = quota - taken;
 
         if (parseInt(hours, 10) > balance) {
-            alert(`Submission Failed: You cannot apply for ${hours} hours. Your remaining balance for this leave type is only ${balance} hours.`);
+            alert(`Submission Failed for year ${requestYear}: You cannot apply for ${hours} hours. Your remaining balance for this leave type is only ${balance} hours.`);
             submitButton.disabled = false;
             submitButton.innerHTML = 'Submit Request';
-            return; 
+            return;
         }
     }
 
@@ -2759,6 +2871,7 @@ const handleRequestSubmit = async (e) => {
         documentUrl: null
     };
 
+    // Define the saveRequest helper function ONCE.
     const saveRequest = async () => {
         try {
             await addDoc(collection(db, 'requests'), newRequest);
@@ -2773,6 +2886,7 @@ const handleRequestSubmit = async (e) => {
         }
     };
 
+    // Logic for handling file upload (if it exists) or saving directly.
     if (documentFile) {
         const progressIndicator = document.getElementById('request-upload-progress');
         const filePath = `leave-documents/${currentUser.uid}/${Date.now()}_${documentFile.name}`;
