@@ -1568,12 +1568,18 @@ const renderExceptionsReport = () => {
                          details += `<br><strong class="text-blue-700">Correction:</strong> ${ex.correctionRemarks}`;
                     }
 
-                    let actionButton = '';
+                    // --- NEW: Flexible Action Buttons Logic ---
+                    let actionButtons = '';
                     if (ex.status === 'Pending') {
-                        actionButton = `<button class="correct-btn text-blue-600 hover:text-blue-900" data-id="${ex.id}">Correct</button>`;
+                        actionButtons = `
+                            <button class="correct-btn text-blue-600 hover:text-blue-900 font-medium" data-id="${ex.id}">Correct Time</button>
+                            <span class="mx-1 text-gray-300">|</span>
+                            <button class="resolve-btn text-green-600 hover:text-green-900 font-medium" data-id="${ex.id}">Resolve</button>
+                        `;
                     } else if (ex.status === 'Corrected') {
-                        actionButton = `<button class="resolve-btn text-green-600 hover:text-green-900" data-id="${ex.id}">Resolve</button>`;
+                        actionButtons = `<button class="resolve-btn text-green-600 hover:text-green-900 font-medium" data-id="${ex.id}">Resolve</button>`;
                     }
+                    // No buttons for 'Resolved' status
 
                     tableHTML += `
                         <tr>
@@ -1582,7 +1588,7 @@ const renderExceptionsReport = () => {
                             <td class="px-6 py-4 whitespace-nowrap">${ex.department}</td>
                             <td class="px-6 py-4 whitespace-nowrap"><span class="font-semibold">${ex.type}</span></td>
                             <td class="px-6 py-4 text-sm text-gray-600">${details}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">${actionButton}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">${actionButtons}</td>
                         </tr>`;
                 });
             }
@@ -1593,13 +1599,13 @@ const renderExceptionsReport = () => {
             // Add event listeners to the new buttons
             document.querySelectorAll('.correct-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                    const exception = currentExceptionsData.find(ex => ex.id === e.target.dataset.id);
+                    const exception = currentExceptionsData.find(ex => ex.id === e.currentTarget.dataset.id);
                     if (exception) openCorrectAttendanceModal(exception);
                 });
             });
             document.querySelectorAll('.resolve-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                     const exception = currentExceptionsData.find(ex => ex.id === e.target.dataset.id);
+                     const exception = currentExceptionsData.find(ex => ex.id === e.currentTarget.dataset.id);
                     if (exception) openResolveExceptionModal(exception);
                 });
             });
