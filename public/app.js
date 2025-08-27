@@ -244,6 +244,33 @@ const updateDashboardLeaveBalances = async (year) => {
     }
 };
 
+const handleAcknowledgeException = async (e) => {
+    const button = e.currentTarget;
+    const exceptionId = button.dataset.id;
+    const banner = document.getElementById(`banner-${exceptionId}`);
+
+    button.disabled = true;
+    button.textContent = 'Acknowledging...';
+
+    try {
+        const exceptionRef = doc(db, 'attendanceExceptions', exceptionId);
+        await updateDoc(exceptionRef, {
+            acknowledged: true
+        });
+
+        // Remove the banner from the screen after successful acknowledgment
+        if (banner) {
+            banner.remove();
+        }
+
+    } catch (error) {
+        console.error("Error acknowledging exception:", error);
+        alert("Failed to acknowledge the notification. Please try again.");
+        button.disabled = false;
+        button.textContent = 'Acknowledge';
+    }
+};
+
 
 // --- Data & Auth ---
 const handleSignIn = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { console.error(e); } };
@@ -295,7 +322,7 @@ const renderDashboard = async () => {
     pageTitle.textContent = 'Dashboard';
     contentArea.innerHTML = `<div class="p-6">Loading Dashboard...</div>`;
 
-    // Define the helper functions needed for the dashboard cards ONCE.
+    // Define the helper functions needed for the dashboard cards.
     const getManagerApprovalsCount = async () => {
         if (!userData.managedDepartments || userData.managedDepartments.length === 0) return 0;
         const collectionsToQuery = ['requests', 'claims', 'purchaseRequests'];
@@ -306,9 +333,7 @@ const renderDashboard = async () => {
             return getDocs(q);
         });
         const snapshots = await Promise.all(queryPromises);
-        snapshots.forEach(snapshot => {
-            totalPending += snapshot.size;
-        });
+        snapshots.forEach(snapshot => { totalPending += snapshot.size; });
         return totalPending;
     };
     const getFinanceClaims = async () => {
@@ -329,92 +354,102 @@ const renderDashboard = async () => {
         const snapshot = await getDocs(q);
         return snapshot.docs;
     };
+    const getMyUnacknowledgedExceptions = async () => {
+        const q = query(collection(db, 'attendanceExceptions'), where('userId', '==', currentUser.email), where('acknowledged', '==', false));
+        return await getDocs(q);
+    };
 
     try {
-        const [managerApprovalsCount, financeClaims, myAssignedJobs, purchaserApprovalsCount] = await Promise.all([
+        // Fetch ALL data in parallel, including exceptions
+        const [
+            managerApprovalsCount, 
+            financeClaims, 
+            myAssignedJobs, 
+            purchaserApprovalsCount,
+            exceptionsSnapshot // Declared ONCE here.
+        ] = await Promise.all([
             (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) ? getManagerApprovalsCount() : Promise.resolve(0),
             userData.roles.includes('Finance') ? getFinanceClaims() : Promise.resolve([]),
             getMyAssignedJobs(),
-            userData.roles.includes('Purchaser') ? getPurchaserApprovals() : Promise.resolve(0)
+            userData.roles.includes('Purchaser') ? getPurchaserApprovals() : Promise.resolve(0),
+            getMyUnacknowledgedExceptions()
         ]);
         
+        // Build the alert banners HTML string first
+        let alertsHtml = '';
+        if (!exceptionsSnapshot.empty) {
+            exceptionsSnapshot.forEach(doc => {
+                const exception = { id: doc.id, ...doc.data() };
+                alertsHtml += `
+                    <div id="banner-${exception.id}" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md shadow-md flex justify-between items-center">
+                        <div>
+                            <p class="font-bold">Attendance Alert (${formatDate(exception.date)})</p>
+                            <p class="text-sm">${exception.details}</p>
+                        </div>
+                        <button data-id="${exception.id}" class="acknowledge-btn ml-4 px-3 py-1 bg-red-500 text-white text-sm font-bold rounded-md hover:bg-red-600">Acknowledge</button>
+                    </div>`;
+            });
+        }
+        
+        // Build the main dashboard HTML
         const currentYear = new Date().getFullYear();
         const yearOptions = [currentYear, currentYear + 1, currentYear + 2].map(y => `<option value="${y}">${y}</option>`).join('');
 
         let dashboardHtml = `
+            <div id="dashboard-alerts-container" class="space-y-4 mb-6">${alertsHtml}</div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow">
                     <h2 class="text-2xl font-bold text-gray-800">Welcome back, ${userData.name}!</h2>
                     <p class="text-gray-600">Here's your summary for today, ${new Date().toLocaleDateString()}.</p>
                 </div>
-                
                 <div class="bg-white p-6 rounded-lg shadow">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="text-lg font-semibold text-gray-800">My Leave Balances</h3>
-                        <select id="dashboard-leave-year-selector" class="py-1 px-2 border border-gray-300 bg-white rounded-md shadow-sm text-sm">
-                            ${yearOptions}
-                        </select>
+                        <select id="dashboard-leave-year-selector" class="py-1 px-2 border border-gray-300 bg-white rounded-md shadow-sm text-sm">${yearOptions}</select>
                     </div>
-                    <div id="dashboard-leave-balances-list" class="space-y-2">
-                        </div>
+                    <div id="dashboard-leave-balances-list" class="space-y-2"></div>
                 </div>
-
                 <div class="bg-white p-6 rounded-lg shadow">
                     <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
                     <div class="grid grid-cols-1 gap-4">
-                        <button onclick="navigateTo('leave-ot')" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors">New Leave/OT Request</button>
-                        <button onclick="navigateTo('claims')" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700 transition-colors">New Expense Claim</button>
-                        <button onclick="navigateTo('attendance')" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition-colors">Record Attendance</button>
+                        <button onclick="navigateTo('leave-ot')" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700">New Leave/OT Request</button>
+                        <button onclick="navigateTo('claims')" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700">New Expense Claim</button>
+                        <button onclick="navigateTo('attendance')" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700">Record Attendance</button>
                     </div>
                 </div>`;
         
+        // ... The rest of the dashboard cards (unchanged)
         if (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) {
-            dashboardHtml += `
-                <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
-                    <h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3>
-                    <p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p>
-                    <p class="text-gray-500">items need your attention.</p>
-                </div>`;
+            dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3><p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p><p class="text-gray-500">items need your attention.</p></div>`;
         }
         if (userData.roles.includes('Finance')) {
             const totalAmount = financeClaims.reduce((sum, claim) => sum + claim.amount, 0);
-            dashboardHtml += `
-                <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
-                    <h3 class="text-lg font-semibold text-gray-800">Claims Awaiting Payout</h3>
-                    <p class="text-5xl font-bold text-red-600 mt-4">${financeClaims.length}</p>
-                    <p class="text-gray-600 font-semibold">Totaling $${totalAmount.toFixed(2)}</p>
-                </div>`;
+            dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Claims Awaiting Payout</h3><p class="text-5xl font-bold text-red-600 mt-4">${financeClaims.length}</p><p class="text-gray-600 font-semibold">Totaling $${totalAmount.toFixed(2)}</p></div>`;
         }
         if (userData.roles.includes('Purchaser')) {
-            dashboardHtml += `
-                <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
-                    <h3 class="text-lg font-semibold text-gray-800">Purchase Requests to Process</h3>
-                    <p class="text-5xl font-bold text-cyan-600 mt-4">${purchaserApprovalsCount}</p>
-                    <p class="text-gray-500">items are waiting for processing.</p>
-                </div>`;
+            dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Purchase Requests to Process</h3><p class="text-5xl font-bold text-cyan-600 mt-4">${purchaserApprovalsCount}</p><p class="text-gray-500">items are waiting for processing.</p></div>`;
         }
         if (myAssignedJobs.length > 0) {
-            dashboardHtml += `
-                <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('my-job')">
-                    <h3 class="text-lg font-semibold text-gray-800">My Assigned Jobs</h3>
-                    <p class="text-5xl font-bold text-teal-600 mt-4">${myAssignedJobs.length}</p>
-                    <p class="text-gray-500">open support tickets require your action.</p>
-                </div>`;
+            dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('my-job')"><h3 class="text-lg font-semibold text-gray-800">My Assigned Jobs</h3><p class="text-5xl font-bold text-teal-600 mt-4">${myAssignedJobs.length}</p><p class="text-gray-500">open support tickets require your action.</p></div>`;
         }
         dashboardHtml += '</div>';
+
+        // Set the HTML and add event listeners AFTER everything is ready
         contentArea.innerHTML = dashboardHtml;
         
-        // Add event listener and load initial data for the leave balance widget
         const yearSelector = document.getElementById('dashboard-leave-year-selector');
         yearSelector.addEventListener('change', (e) => updateDashboardLeaveBalances(e.target.value));
-        updateDashboardLeaveBalances(currentYear); // Load current year's data by default
+        updateDashboardLeaveBalances(currentYear);
+
+        document.querySelectorAll('.acknowledge-btn').forEach(btn => {
+            btn.addEventListener('click', handleAcknowledgeException);
+        });
 
     } catch (error) {
         console.error("Error building dashboard:", error);
         contentArea.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-lg">Failed to load dashboard. ${error.message}</div>`;
     }
 };
-
 const renderMyDocuments = async () => {
     pageTitle.textContent = 'My Documents';
     contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow">Loading documents...</div>`;
