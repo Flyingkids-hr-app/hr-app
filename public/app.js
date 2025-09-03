@@ -1518,19 +1518,16 @@ const renderPayrollReport = async () => {
 const renderExceptionsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
-    let currentExceptionsData = []; // Cache the fetched data for the modals
+    let currentExceptionsData = [];
+    let dataForExport = []; // Variable to hold cleaned data for CSV export
 
     const hasGlobalAccess = userData.roles.includes('Director') || userData.roles.includes('HR');
 
-    // --- Main data fetching and rendering function ---
     const fetchData = async () => {
-        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching attendance exceptions...</p>`;
-
+        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching exceptions...</p>`;
         const status = document.getElementById('report-status')?.value || 'Pending';
         const department = document.getElementById('report-department')?.value;
-        
         let q = query(collection(db, 'attendanceExceptions'), where('status', '==', status), orderBy('date', 'desc'));
-
         if (department) {
             q = query(q, where('department', '==', department));
         } else if (!hasGlobalAccess && userData.managedDepartments?.length > 0) {
@@ -1540,85 +1537,48 @@ const renderExceptionsReport = () => {
         try {
             const querySnapshot = await getDocs(q);
             const exceptions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            currentExceptionsData = exceptions; // Cache the data
+            currentExceptionsData = exceptions;
 
-            let tableHTML = `
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">`;
+            // Prepare data for CSV export
+            dataForExport = exceptions.map(ex => ({
+                Date: ex.date,
+                Employee: ex.userName,
+                Department: ex.department,
+                Type: ex.type,
+                Details: ex.details,
+                Status: ex.status,
+                CorrectedBy: ex.correctedBy || 'N/A',
+                CorrectionRemarks: ex.correctionRemarks || 'N/A',
+                ResolvedBy: ex.resolvedBy || 'N/A',
+                ResolutionNotes: ex.resolutionNotes || 'N/A'
+            }));
 
+            let tableHTML = `<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
             if (exceptions.length === 0) {
-                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No exceptions found for the selected filters.</td></tr>`;
+                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No exceptions found.</td></tr>`;
             } else {
                 exceptions.forEach(ex => {
                     let details = ex.details;
-                    if (ex.status === 'Resolved' && ex.resolutionNotes) {
-                        details += `<br><strong class="text-green-700">Resolution:</strong> ${ex.resolutionNotes}`;
-                    } else if (ex.status === 'Corrected' && ex.correctionRemarks) {
-                         details += `<br><strong class="text-blue-700">Correction:</strong> ${ex.correctionRemarks}`;
-                    }
-
-                    // --- NEW: Flexible Action Buttons Logic ---
+                    if (ex.status === 'Resolved' && ex.resolutionNotes) { details += `<br><strong class="text-green-700">Resolution:</strong> ${ex.resolutionNotes}`; } 
+                    else if (ex.status === 'Corrected' && ex.correctionRemarks) { details += `<br><strong class="text-blue-700">Correction:</strong> ${ex.correctionRemarks}`; }
                     let actionButtons = '';
-                    if (ex.status === 'Pending') {
-                        actionButtons = `
-                            <button class="correct-btn text-blue-600 hover:text-blue-900 font-medium" data-id="${ex.id}">Correct Time</button>
-                            <span class="mx-1 text-gray-300">|</span>
-                            <button class="resolve-btn text-green-600 hover:text-green-900 font-medium" data-id="${ex.id}">Resolve</button>
-                        `;
-                    } else if (ex.status === 'Corrected') {
-                        actionButtons = `<button class="resolve-btn text-green-600 hover:text-green-900 font-medium" data-id="${ex.id}">Resolve</button>`;
-                    }
-                    // No buttons for 'Resolved' status
-
-                    tableHTML += `
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap">${formatDate(ex.date)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${ex.userName}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${ex.department}</td>
-                            <td class="px-6 py-4 whitespace-nowrap"><span class="font-semibold">${ex.type}</span></td>
-                            <td class="px-6 py-4 text-sm text-gray-600">${details}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm">${actionButtons}</td>
-                        </tr>`;
+                    if (ex.status === 'Pending') { actionButtons = `<button class="correct-btn text-blue-600 hover:text-blue-900 font-medium" data-id="${ex.id}">Correct Time</button> <span class="mx-1 text-gray-300">|</span> <button class="resolve-btn text-green-600 hover:text-green-900 font-medium" data-id="${ex.id}">Resolve</button>`; } 
+                    else if (ex.status === 'Corrected') { actionButtons = `<button class="resolve-btn text-green-600 hover:text-green-900 font-medium" data-id="${ex.id}">Resolve</button>`; }
+                    tableHTML += `<tr><td class="px-6 py-4 whitespace-nowrap">${formatDate(ex.date)}</td><td class="px-6 py-4 whitespace-nowrap">${ex.userName}</td><td class="px-6 py-4 whitespace-nowrap">${ex.department}</td><td class="px-6 py-4 whitespace-nowrap"><span class="font-semibold">${ex.type}</span></td><td class="px-6 py-4 text-sm text-gray-600">${details}</td><td class="px-6 py-4 whitespace-nowrap text-sm">${actionButtons}</td></tr>`;
                 });
             }
-
             tableHTML += `</tbody></table></div>`;
             dataContainer.innerHTML = tableHTML;
 
-            // Add event listeners to the new buttons
-            document.querySelectorAll('.correct-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const exception = currentExceptionsData.find(ex => ex.id === e.currentTarget.dataset.id);
-                    if (exception) openCorrectAttendanceModal(exception);
-                });
-            });
-            document.querySelectorAll('.resolve-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                     const exception = currentExceptionsData.find(ex => ex.id === e.currentTarget.dataset.id);
-                    if (exception) openResolveExceptionModal(exception);
-                });
-            });
-
+            document.querySelectorAll('.correct-btn').forEach(btn => { btn.addEventListener('click', (e) => { const ex = currentExceptionsData.find(ex => ex.id === e.currentTarget.dataset.id); if (ex) openCorrectAttendanceModal(ex); }); });
+            document.querySelectorAll('.resolve-btn').forEach(btn => { btn.addEventListener('click', (e) => { const ex = currentExceptionsData.find(ex => ex.id === e.currentTarget.dataset.id); if (ex) openResolveExceptionModal(ex); }); });
         } catch (error) {
             console.error("Error fetching attendance exceptions:", error);
-            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data. A Firestore index may be required.</p>`;
+            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data.</p>`;
         }
     };
 
-    // --- Render the initial filters for this report ---
     let deptOptions = hasGlobalAccess ? appConfig.availableDepartments.map(d => `<option value="${d}">${d}</option>`).join('') : '';
-
     filtersContainer.innerHTML = `
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div>
@@ -1629,25 +1589,15 @@ const renderExceptionsReport = () => {
                     <option value="Resolved">Resolved</option>
                 </select>
             </div>
-            ${hasGlobalAccess ? `
-            <div>
-                <label for="report-department" class="block text-sm font-medium text-gray-700">Department</label>
-                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
-                    <option value="">All Departments</option>
-                    ${deptOptions}
-                </select>
-            </div>` : ''}
-            <div class="flex items-end">
-                <button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button>
-            </div>
-        </div>
-    `;
-
+            ${hasGlobalAccess ? `<div><label for="report-department" class="block text-sm font-medium text-gray-700">Department</label><select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md"><option value="">All Departments</option>${deptOptions}</select></div>` : ''}
+            <div class="flex items-end"><button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button></div>
+            <div class="flex items-end"><button id="export-csv-btn" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700"><i class="fas fa-file-csv mr-2"></i>Export CSV</button></div>
+        </div>`;
     document.getElementById('apply-filters-btn').addEventListener('click', fetchData);
-
-    // Initial data load
+    document.getElementById('export-csv-btn').addEventListener('click', () => exportToCSV(dataForExport, 'attendance-exceptions-report'));
     fetchData();
 };
+
 
 const renderSupportTicketsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
