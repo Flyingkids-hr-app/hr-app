@@ -317,12 +317,11 @@ const fetchUserLeaveQuota = async (userId) => {
 };
 
 // --- Page Rendering ---
-// Replace the broken renderDashboard function with this corrected version
+// Replace the entire renderDashboard function with this new version
 const renderDashboard = async () => {
     pageTitle.textContent = 'Dashboard';
     contentArea.innerHTML = `<div class="p-6">Loading Dashboard...</div>`;
 
-    // Define the helper functions needed for the dashboard cards.
     const getManagerApprovalsCount = async () => {
         if (!userData.managedDepartments || userData.managedDepartments.length === 0) return 0;
         const collectionsToQuery = ['requests', 'claims', 'purchaseRequests'];
@@ -360,13 +359,12 @@ const renderDashboard = async () => {
     };
 
     try {
-        // Fetch ALL data in parallel, including exceptions
         const [
             managerApprovalsCount, 
             financeClaims, 
             myAssignedJobs, 
             purchaserApprovalsCount,
-            exceptionsSnapshot // Declared ONCE here.
+            exceptionsSnapshot
         ] = await Promise.all([
             (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) ? getManagerApprovalsCount() : Promise.resolve(0),
             userData.roles.includes('Finance') ? getFinanceClaims() : Promise.resolve([]),
@@ -375,7 +373,6 @@ const renderDashboard = async () => {
             getMyUnacknowledgedExceptions()
         ]);
         
-        // Build the alert banners HTML string first
         let alertsHtml = '';
         if (!exceptionsSnapshot.empty) {
             exceptionsSnapshot.forEach(doc => {
@@ -391,7 +388,6 @@ const renderDashboard = async () => {
             });
         }
         
-        // Build the main dashboard HTML
         const currentYear = new Date().getFullYear();
         const yearOptions = [currentYear, currentYear + 1, currentYear + 2].map(y => `<option value="${y}">${y}</option>`).join('');
 
@@ -418,13 +414,17 @@ const renderDashboard = async () => {
                     </div>
                 </div>`;
         
-        // ... The rest of the dashboard cards (unchanged)
         if (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) {
             dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3><p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p><p class="text-gray-500">items need your attention.</p></div>`;
         }
         if (userData.roles.includes('Finance')) {
             const totalAmount = financeClaims.reduce((sum, claim) => sum + claim.amount, 0);
-            dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Claims Awaiting Payout</h3><p class="text-5xl font-bold text-red-600 mt-4">${financeClaims.length}</p><p class="text-gray-600 font-semibold">Totaling $${totalAmount.toFixed(2)}</p></div>`;
+            dashboardHtml += `
+                <div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')">
+                    <h3 class="text-lg font-semibold text-gray-800">Claims Awaiting Payout</h3>
+                    <p class="text-5xl font-bold text-red-600 mt-4">${financeClaims.length}</p>
+                    <p class="text-gray-600 font-semibold">Totaling RM${totalAmount.toFixed(2)}</p>
+                </div>`;
         }
         if (userData.roles.includes('Purchaser')) {
             dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Purchase Requests to Process</h3><p class="text-5xl font-bold text-cyan-600 mt-4">${purchaserApprovalsCount}</p><p class="text-gray-500">items are waiting for processing.</p></div>`;
@@ -434,7 +434,6 @@ const renderDashboard = async () => {
         }
         dashboardHtml += '</div>';
 
-        // Set the HTML and add event listeners AFTER everything is ready
         contentArea.innerHTML = dashboardHtml;
         
         const yearSelector = document.getElementById('dashboard-leave-year-selector');
@@ -450,6 +449,7 @@ const renderDashboard = async () => {
         contentArea.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-lg">Failed to load dashboard. ${error.message}</div>`;
     }
 };
+
 const renderMyDocuments = async () => {
     pageTitle.textContent = 'My Documents';
     contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow">Loading documents...</div>`;
@@ -687,7 +687,7 @@ const renderClaims = async () => {
                 return `
                     <div class="bg-white p-4 rounded-lg shadow flex items-center justify-between">
                         <div>
-                            <p class="font-bold text-gray-800">${claim.claimType} - $${claim.amount.toFixed(2)}</p>
+                            <p class="font-bold text-gray-800">${claim.claimType} - RM${claim.amount.toFixed(2)}</p>
                             <p class="text-sm text-gray-600">Date: ${formatDate(claim.expenseDate)}</p>
                         </div>
                         <div class="flex items-center space-x-4">
@@ -733,7 +733,7 @@ const renderPurchasing = async () => {
                     <div class="bg-white p-4 rounded-lg shadow flex items-center justify-between">
                         <div>
                             <p class="font-bold text-gray-800">${req.itemDescription}</p>
-                            <p class="text-sm text-gray-600">Est. Cost: $${req.estimatedCost.toFixed(2)}</p>
+                            <p class="text-sm text-gray-600">Est. Cost: RM${req.estimatedCost.toFixed(2)}</p>
                         </div>
                         <div class="flex items-center space-x-4">
                              <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
@@ -2285,7 +2285,6 @@ const handleResolveExceptionSubmit = async (e) => {
 // =================================================================================
 
 
-// Replace the entire openRequestDetailsModal function with this new version
 const openRequestDetailsModal = async (requestId, collectionName, isApproval = false) => {
     const modal = document.getElementById('view-request-modal');
     const modalTitle = document.getElementById('view-request-modal-title');
@@ -2311,24 +2310,11 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
         
         switch(collectionName) {
             case 'requests':
+                // ... (no changes in this case)
                 const duration = calculateDuration(data.startDate, data.endDate);
                 modalTitle.textContent = 'Leave / OT Request Details';
-                bodyHtml += `
-                    <p><strong>Applicant:</strong> ${data.userName}</p>
-                    <p><strong>Type:</strong> ${data.type}</p>
-                    <p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p>
-                    <p><strong>Calculated Duration:</strong> ${duration}</p>
-                    <p><strong>Hours Claimed:</strong> ${data.hours}</p>
-                    <p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p>
-                    <p><strong>Status:</strong> ${data.status}</p>
-                    ${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}
-                `;
-                if (isApproval && data.status === 'Pending') {
-                    footerHtml += `
-                        <button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button>
-                        <button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>
-                    `;
-                }
+                bodyHtml += `<p><strong>Applicant:</strong> ${data.userName}</p><p><strong>Type:</strong> ${data.type}</p><p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p><p><strong>Calculated Duration:</strong> ${duration}</p><p><strong>Hours Claimed:</strong> ${data.hours}</p><p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p><p><strong>Status:</strong> ${data.status}</p>${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}`;
+                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>`; }
                 break;
             case 'claims':
                 modalTitle.textContent = 'Expense Claim Details';
@@ -2336,20 +2322,13 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                      <p><strong>Applicant:</strong> ${data.userName}</p>
                      <p><strong>Claim Type:</strong> ${data.claimType}</p>
                      <p><strong>Expense Date:</strong> ${formatDate(data.expenseDate)}</p>
-                     <p><strong>Amount:</strong> $${data.amount.toFixed(2)}</p>
+                     <p><strong>Amount:</strong> RM${data.amount.toFixed(2)}</p>
                      <p><strong>Description:</strong><br><span class="pl-2">${data.description}</span></p>
                      <p><strong>Status:</strong> ${data.status}</p>
-                     <!-- THIS IS THE CORRECTED LINE -->
                      ${data.receiptUrl ? `<p><strong>Receipt:</strong> <a href="${data.receiptUrl}" target="_blank" class="text-indigo-600 hover:underline">View Receipt</a></p>` : '<p><strong>Receipt:</strong> No receipt was uploaded.</p>'}
                 `;
-                if (isApproval && data.status === 'Pending') {
-                    footerHtml += `
-                        <button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button>
-                        <button class="approve-claim-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>
-                    `;
-                } else if (isApproval && data.status === 'Approved' && userData.roles.includes('Finance')) {
-                     footerHtml += `<button class="paid-claim-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Mark as Paid</button>`;
-                }
+                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-claim-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`; }
+                else if (isApproval && data.status === 'Approved' && userData.roles.includes('Finance')) { footerHtml += `<button class="paid-claim-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Mark as Paid</button>`; }
                 break;
             case 'purchaseRequests':
                 modalTitle.textContent = 'Purchase Request Details';
@@ -2357,21 +2336,14 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                     <p><strong>Applicant:</strong> ${data.userName}</p>
                     <p><strong>Item:</strong> ${data.itemDescription}</p>
                     <p><strong>Quantity:</strong> ${data.quantity}</p>
-                    <p><strong>Estimated Cost:</strong> $${data.estimatedCost.toFixed(2)}</p>
+                    <p><strong>Estimated Cost:</strong> RM${data.estimatedCost.toFixed(2)}</p>
                     <p><strong>Justification:</strong><br><span class="pl-2">${data.justification}</span></p>
                     <p><strong>Status:</strong> ${data.status}</p>
                     ${data.productLink ? `<p><strong>Product Link:</strong> <a href="${data.productLink}" target="_blank" class="text-indigo-600 hover:underline">View Product</a></p>` : ''}
                 `;
-                if (isApproval && data.status === 'Pending') {
-                    footerHtml += `
-                        <button class="reject-purchase-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button>
-                        <button class="approve-purchase-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>
-                    `;
-                } else if (isApproval && data.status === 'Approved' && userData.roles.includes('Purchaser')) {
-                    footerHtml += `<button class="process-purchase-button bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Start Processing</button>`;
-                } else if (isApproval && data.status === 'Processing' && userData.roles.includes('Purchaser')) {
-                    footerHtml += `<button class="complete-purchase-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Mark Completed</button>`;
-                }
+                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-purchase-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-purchase-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`; }
+                else if (isApproval && data.status === 'Approved' && userData.roles.includes('Purchaser')) { footerHtml += `<button class="process-purchase-button bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Start Processing</button>`; }
+                else if (isApproval && data.status === 'Processing' && userData.roles.includes('Purchaser')) { footerHtml += `<button class="complete-purchase-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Mark Completed</button>`; }
                 break;
         }
 
