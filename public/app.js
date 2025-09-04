@@ -2285,6 +2285,7 @@ const handleResolveExceptionSubmit = async (e) => {
 // =================================================================================
 
 
+// Replace the entire openRequestDetailsModal function with this new version
 const openRequestDetailsModal = async (requestId, collectionName, isApproval = false) => {
     const modal = document.getElementById('view-request-modal');
     const modalTitle = document.getElementById('view-request-modal-title');
@@ -2311,7 +2312,6 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
         switch(collectionName) {
             case 'requests':
                 const duration = calculateDuration(data.startDate, data.endDate);
-
                 modalTitle.textContent = 'Leave / OT Request Details';
                 bodyHtml += `
                     <p><strong>Applicant:</strong> ${data.userName}</p>
@@ -2339,9 +2339,10 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                      <p><strong>Amount:</strong> $${data.amount.toFixed(2)}</p>
                      <p><strong>Description:</strong><br><span class="pl-2">${data.description}</span></p>
                      <p><strong>Status:</strong> ${data.status}</p>
-                     <p><strong>Receipt:</strong> <a href="${data.receiptUrl}" target="_blank" class="text-indigo-600 hover:underline">View Receipt</a></p>
+                     <!-- THIS IS THE CORRECTED LINE -->
+                     ${data.receiptUrl ? `<p><strong>Receipt:</strong> <a href="${data.receiptUrl}" target="_blank" class="text-indigo-600 hover:underline">View Receipt</a></p>` : '<p><strong>Receipt:</strong> No receipt was uploaded.</p>'}
                 `;
-                 if (isApproval && data.status === 'Pending') {
+                if (isApproval && data.status === 'Pending') {
                     footerHtml += `
                         <button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button>
                         <button class="approve-claim-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>
@@ -2351,8 +2352,8 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                 }
                 break;
             case 'purchaseRequests':
-                 modalTitle.textContent = 'Purchase Request Details';
-                 bodyHtml += `
+                modalTitle.textContent = 'Purchase Request Details';
+                bodyHtml += `
                     <p><strong>Applicant:</strong> ${data.userName}</p>
                     <p><strong>Item:</strong> ${data.itemDescription}</p>
                     <p><strong>Quantity:</strong> ${data.quantity}</p>
@@ -2361,7 +2362,7 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                     <p><strong>Status:</strong> ${data.status}</p>
                     ${data.productLink ? `<p><strong>Product Link:</strong> <a href="${data.productLink}" target="_blank" class="text-indigo-600 hover:underline">View Product</a></p>` : ''}
                 `;
-                 if (isApproval && data.status === 'Pending') {
+                if (isApproval && data.status === 'Pending') {
                     footerHtml += `
                         <button class="reject-purchase-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button>
                         <button class="approve-purchase-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>
@@ -2394,6 +2395,7 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
         modalBody.innerHTML = 'Failed to load request details.';
     }
 };
+
 
 const closeRequestDetailsModal = () => {
     const modal = document.getElementById('view-request-modal');
@@ -3082,22 +3084,61 @@ const handleUpdateSupportStatus = async (e) => {
     }
 };
 
+// Replace the entire openClaimModal function with this new version
 const openClaimModal = () => {
     claimForm.reset();
     const claimTypeSelect = document.getElementById('claim-type');
+    const deptContainer = document.getElementById('claim-department-container');
+    const deptSelect = document.getElementById('claim-department');
+    const receiptInput = document.getElementById('claim-receipt');
+    const receiptLabel = document.querySelector('label[for="claim-receipt"]');
+
+    // Populate the claim types dropdown
     claimTypeSelect.innerHTML = '<option value="">Select a type...</option>';
     (appConfig.claimTypes || []).forEach(type => {
         const option = document.createElement('option');
         option.value = type.name;
         option.textContent = type.name;
+        option.dataset.category = type.category; 
         claimTypeSelect.appendChild(option);
     });
+    
+    // Populate the departments dropdown once
+    deptSelect.innerHTML = '<option value="">Select a department...</option>';
+    (appConfig.availableDepartments || []).forEach(dept => {
+        const option = document.createElement('option');
+        option.value = dept;
+        option.textContent = dept;
+        deptSelect.appendChild(option);
+    });
+
+    const updateFormVisibility = () => {
+        const selectedOption = claimTypeSelect.options[claimTypeSelect.selectedIndex];
+        const category = selectedOption.dataset.category;
+
+        if (category === 'Allowance') {
+            deptContainer.classList.remove('hidden');
+            deptSelect.required = true;
+            receiptInput.required = false;
+            if (receiptLabel) receiptLabel.innerHTML = 'Receipt (Optional)';
+        } else { // Default for Reimbursement and other types
+            deptContainer.classList.add('hidden');
+            deptSelect.required = false;
+            receiptInput.required = true;
+            if (receiptLabel) receiptLabel.innerHTML = 'Receipt <span class="text-red-500">*</span>';
+        }
+    };
+    
+    claimTypeSelect.addEventListener('change', updateFormVisibility);
+    
     document.getElementById('upload-progress').textContent = '';
     claimModal.classList.remove('hidden');
+    updateFormVisibility();
 };
 
 const closeClaimModal = () => claimModal.classList.add('hidden');
 
+// Replace the entire handleClaimSubmit function with this new version
 const handleClaimSubmit = async (e) => {
     e.preventDefault();
     const submitButton = e.target.querySelector('button[type="submit"]');
@@ -3109,9 +3150,25 @@ const handleClaimSubmit = async (e) => {
     const amount = parseFloat(document.getElementById('claim-amount').value);
     const description = document.getElementById('claim-description').value.trim();
     const receiptFile = document.getElementById('claim-receipt').files[0];
+    
+    const selectedOption = document.getElementById('claim-type').options[document.getElementById('claim-type').selectedIndex];
+    const category = selectedOption.dataset.category;
 
-    if (!claimType || !expenseDate || !amount || !description) {
+    let claimDepartment;
+    if (category === 'Allowance') {
+        claimDepartment = document.getElementById('claim-department').value;
+    } else {
+        claimDepartment = userData.primaryDepartment;
+    }
+
+    if (!claimType || !expenseDate || !amount || !description || (category === 'Allowance' && !claimDepartment)) {
         alert("Please fill out all required fields.");
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit Claim';
+        return;
+    }
+    if (category !== 'Allowance' && !receiptFile) {
+        alert('A receipt is required for Reimbursement claims.');
         submitButton.disabled = false;
         submitButton.textContent = 'Submit Claim';
         return;
@@ -3120,7 +3177,7 @@ const handleClaimSubmit = async (e) => {
     const newClaim = {
         userId: currentUser.email,
         userName: userData.name,
-        department: userData.primaryDepartment,
+        department: claimDepartment,
         claimType: claimType,
         expenseDate: expenseDate,
         amount: amount,

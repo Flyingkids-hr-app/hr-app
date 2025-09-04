@@ -231,7 +231,16 @@
                             <label for="claim-type" class="block text-sm font-medium text-gray-700">Claim Type</label>
                             <select id="claim-type" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select>
                         </div>
-                        <div>
+                            <!-- START: PASTE THE NEW CODE HERE -->
+    <div id="claim-department-container" class="hidden">
+        <label for="claim-department" class="block text-sm font-medium text-gray-700">Department for Allowance <span class="text-red-500">*</span></label>
+        <select id="claim-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+            <!-- Options will be populated by JavaScript -->
+        </select>
+    </div>
+    <!-- END: NEW CODE -->
+
+<div>
                             <label for="claim-date" class="block text-sm font-medium text-gray-700">Date of Expense</label>
                             <input type="date" id="claim-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                         </div>
@@ -244,9 +253,10 @@
                             <textarea id="claim-description" rows="3" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea>
                         </div>
                         <div class="md:col-span-2">
-                            <label for="claim-receipt" class="block text-sm font-medium text-gray-700">Upload Receipt (if applicable)</label>
-                            <p id="upload-progress" class="text-sm text-gray-500 mt-1"></p>
-                        </div>
+    <label for="claim-receipt" class="block text-sm font-medium text-gray-700">Upload Receipt (if applicable)</label>
+    <input type="file" id="claim-receipt" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+    <p id="upload-progress" class="text-sm text-gray-500 mt-1"></p>
+</div>
                     </div>
                     <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
                         <button id="claim-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
