@@ -348,7 +348,7 @@ exports.correctAttendanceRecord = onCall({
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: generatePayrollReport (NEW)
 // =================================================================================
-// Find and replace this entire function in functions/index.js
+// Replace the entire generatePayrollReport function with this new version
 exports.generatePayrollReport = onCall({
     timeoutSeconds: 60,
 }, async (request) => {
@@ -374,7 +374,7 @@ exports.generatePayrollReport = onCall({
     const startDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').startOf('month').format('YYYY-MM-DD');
     const endDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').endOf('month').format('YYYY-MM-DD');
     const exceptionsQuery = await db.collection('attendanceExceptions')
-        .where('status', '==', 'Pending')
+        .where('status', 'in', ['Pending', 'Corrected']) // Block if pending OR corrected but not resolved
         .where('userId', 'in', userIds)
         .where('date', '>=', startDateStr)
         .where('date', '<=', endDateStr)
@@ -401,11 +401,20 @@ exports.generatePayrollReport = onCall({
         const allRequests = requestsSnap.docs.map(doc => doc.data());
         const allClaims = claimsSnap.docs.map(doc => doc.data());
         const allAttendance = attendanceSnap.docs.map(doc => doc.data());
-        const crossDeptOtTypes = (appConfig.requestTypes || [])
-            .filter(rt => rt.isCrossDepartmental)
-            .map(rt => rt.name);
 
         const payrollData = [];
+
+        // --- NEW: Identify all unique allowance types used this period ---
+        const claimTypesConfig = appConfig.claimTypes || [];
+        const usedAllowanceTypes = new Set();
+        allClaims.forEach(claim => {
+            const claimTypeInfo = claimTypesConfig.find(ct => ct.name === claim.claimType);
+            if (claimTypeInfo && claimTypeInfo.category === 'Allowance') {
+                usedAllowanceTypes.add(claim.claimType);
+            }
+        });
+        const sortedAllowanceTypes = Array.from(usedAllowanceTypes).sort();
+
 
         // 5. --- DATA AGGREGATION ---
         for (const user of usersData) {
@@ -414,13 +423,13 @@ exports.generatePayrollReport = onCall({
             let paidLeaveHours = 0;
             let unpaidLeaveHours = 0;
             let ownDeptOtHours = 0;
-            // ** NEW ** Initialize separate claim counters
             let totalAllowances = 0;
             let totalReimbursements = 0;
-
-            const dynamicOtHours = {};
-            crossDeptOtTypes.forEach(typeName => {
-                dynamicOtHours[`${typeName} (Hrs)`] = 0;
+            
+            // NEW: Create an object to hold the breakdown for each allowance type
+            const allowanceDetails = {};
+            sortedAllowanceTypes.forEach(typeName => {
+                allowanceDetails[`${typeName} (RM)`] = 0;
             });
 
             // A. Calculate Total Workdays
@@ -445,29 +454,22 @@ exports.generatePayrollReport = onCall({
                 if (!reqTypeConfig) continue;
 
                 if (req.type.toLowerCase().includes('overtime')) {
-                    if (req.department === user.primaryDepartment) {
-                        ownDeptOtHours += req.hours;
-                    } else if (reqTypeConfig.isCrossDepartmental) {
-                        dynamicOtHours[`${req.type} (Hrs)`] += req.hours;
-                    }
+                    ownDeptOtHours += req.hours; // All OT is now considered Own Dept OT
                 } else {
-                    if (reqTypeConfig.isPaidLeave) {
-                        paidLeaveHours += req.hours;
-                    } else {
-                        unpaidLeaveHours += req.hours;
-                    }
+                    if (reqTypeConfig.isPaidLeave) { paidLeaveHours += req.hours; } 
+                    else { unpaidLeaveHours += req.hours; }
                 }
             }
             
-            // D. ** NEW ** Aggregate Claims into separate categories
-            const claimTypesConfig = appConfig.claimTypes || [];
+            // D. Aggregate Claims and populate the allowance breakdown
             const userClaims = allClaims.filter(claim => claim.userId === user.email);
             for (const claim of userClaims) {
                 const claimTypeInfo = claimTypesConfig.find(ct => ct.name === claim.claimType);
                 if (claimTypeInfo && claimTypeInfo.category === 'Allowance') {
                     totalAllowances += claim.amount;
+                    // Add the amount to the specific allowance column
+                    allowanceDetails[`${claim.claimType} (RM)`] += claim.amount;
                 } else {
-                    // Default to reimbursement if category not found or is 'Reimbursement'
                     totalReimbursements += claim.amount;
                 }
             }
@@ -481,9 +483,9 @@ exports.generatePayrollReport = onCall({
                 'Paid Leave (Hours)': paidLeaveHours,
                 'Unpaid Leave (Hours)': unpaidLeaveHours,
                 'Own Department OT (Hours)': ownDeptOtHours,
-                ...dynamicOtHours,
-                'Total Allowances ($)': parseFloat(totalAllowances.toFixed(2)),
-                'Total Reimbursements ($)': parseFloat(totalReimbursements.toFixed(2))
+                ...allowanceDetails, // Add the dynamic allowance columns
+                'Total Allowances (RM)': parseFloat(totalAllowances.toFixed(2)),
+                'Total Reimbursements (RM)': parseFloat(totalReimbursements.toFixed(2))
             });
         }
 
@@ -495,7 +497,6 @@ exports.generatePayrollReport = onCall({
     }
 });
 
-// --- HELPER FUNCTION containing the core logic (Upgraded) ---
 // --- HELPER FUNCTION containing the core logic (Upgraded) ---
 const runAttendanceCheckLogic = async () => {
     console.log('--- Running Daily Attendance Check Logic ---');
