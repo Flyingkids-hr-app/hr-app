@@ -501,137 +501,134 @@ exports.generatePayrollReport = onCall({
 
 // --- HELPER FUNCTION containing the core logic (Upgraded) ---
 const runAttendanceCheckLogic = async () => {
-    console.log('--- Running Daily Attendance Check Logic ---');
-    const today = moment().tz('Asia/Kuala_Lumpur');
-    const todayStr = today.format('YYYY-MM-DD');
-    const dayOfWeek = today.format('dddd');
-    try {
-        // --- START OF NEW CALENDAR LOGIC ---
-        // 1. Check for any non-working day rules for today.
-        const holidayRef = db.collection('companyCalendar').doc(todayStr);
-        const holidayDoc = await holidayRef.get();
-        let holidayDepts = [];
-        let isGlobalHoliday = false;
+    console.log('--- Running Daily Attendance Check Logic ---');
+    const today = moment().tz('Asia/Kuala_Lumpur');
+    const todayStr = today.format('YYYY-MM-DD');
+    const dayOfWeek = today.format('dddd');
 
-        if (holidayDoc.exists) {
-            const holidayData = holidayDoc.data();
-           // Check if it's a holiday for ALL departments
-            if (holidayData.appliesTo && holidayData.appliesTo.includes('__ALL__')) {
-                isGlobalHoliday = true;
-                console.log(`Today (${todayStr}) is a global non-working day. Reason: ${holidayData.description}. Skipping all attendance checks.`);
-                return; // Exit the function early if it's a holiday for everyone.
-            } else if (holidayData.appliesTo) {
-                // Otherwise, store the list of departments that have the day off
-                holidayDepts = holidayData.appliesTo;
-               console.log(`Today (${todayStr}) is a non-working day for depts: ${holidayDepts.join(', ')}`);
-            }
-        }
+    try {
+        // --- START OF NEW CALENDAR LOGIC ---
+        // 1. Check for any non-working day rules for today.
+        const holidayRef = db.collection('companyCalendar').doc(todayStr);
+        const holidayDoc = await holidayRef.get();
+        let holidayDepts = [];
 
-        // --- END OF NEW CALENDAR LOGIC ---
+        if (holidayDoc.exists) {
+            const holidayData = holidayDoc.data();
+            // Check if it's a holiday for ALL departments
+            if (holidayData.appliesTo && holidayData.appliesTo.includes('__ALL__')) {
+                console.log(`Today (${todayStr}) is a global non-working day. Reason: ${holidayData.description}. Skipping all attendance checks.`);
+                return; // Exit the function early if it's a holiday for everyone.
+            } else if (holidayData.appliesTo) {
+                // Otherwise, store the list of departments that have the day off
+                holidayDepts = holidayData.appliesTo;
+                console.log(`Today (${todayStr}) is a non-working day for depts: ${holidayDepts.join(', ')}`);
+            }
+        }
+        // --- END OF NEW CALENDAR LOGIC ---
 
+        const usersSnapshot = await db.collection('users')
+            .where('status', '==', 'active')
+            .where(`workSchedule.${dayOfWeek}.active`, '==', true)
+            .get();
 
-        const usersSnapshot = await db.collection('users')
-            .where('status', '==', 'active')
-            .where(`workSchedule.${dayOfWeek}.active`, '==', true)
-            .get();
+        if (usersSnapshot.empty) {
+            console.log('No users scheduled to work today. Exiting.');
+            return;
+        }
 
+        const attendanceSnapshot = await db.collection('attendance').where('date', '==', todayStr).get();
+        const leaveSnapshot = await db.collection('requests').where('status', '==', 'Approved').get();
 
-        if (usersSnapshot.empty) {
-            console.log('No users scheduled to work today. Exiting.');
-            return;
-        }
+        const attendanceMap = new Map();
+        attendanceSnapshot.forEach(doc => attendanceMap.set(doc.data().userId, doc.data()));
 
-        const attendanceSnapshot = await db.collection('attendance').where('date', '==', todayStr).get();
-        const leaveSnapshot = await db.collection('requests').where('status', '==', 'Approved').get();
+        const leaveMap = new Map();
+        leaveSnapshot.forEach(doc => {
+            const request = doc.data();
+            if (request.startDate && request.endDate) {
+                const startDate = moment(request.startDate).tz('Asia/Kuala_Lumpur');
+                const endDate = moment(request.endDate).tz('Asia/Kuala_Lumpur');
+                if (today.isBetween(startDate, endDate, 'day', '[]')) {
+                    leaveMap.set(request.userId, request);
+                }
+            }
+        });
 
-        const attendanceMap = new Map();
-        attendanceSnapshot.forEach(doc => attendanceMap.set(doc.data().userId, doc.data()));
+        const batch = db.batch();
+        let absentCount = 0, lateCount = 0, missedCheckoutCount = 0;
+        for (const userDoc of usersSnapshot.docs) {
+            const user = userDoc.data();
+            const userId = user.email;
 
-        const leaveMap = new Map();
-        leaveSnapshot.forEach(doc => {
-            const request = doc.data();
-            if (request.startDate && request.endDate) {
-                const startDate = moment(request.startDate).tz('Asia/Kuala_Lumpur');
-                const endDate = moment(request.endDate).tz('Asia/Kuala_Lumpur');
-                if (today.isBetween(startDate, endDate, 'day', '[]')) {
-                    leaveMap.set(request.userId, request);
-                }
-            }
-        });
+            // --- NEW CHECK INSIDE THE LOOP ---
+            // 2. Skip this user if it's a designated non-working day for their department.
+            if (holidayDepts.includes(user.primaryDepartment)) {
+                console.log(`Skipping attendance check for ${user.name} because it is a designated non-working day for the ${user.primaryDepartment} department.`);
+                continue; // Go to the next user
+            }
+            // --- END OF NEW CHECK INSIDE THE LOOP ---
 
-        const batch = db.batch();
-        let absentCount = 0, lateCount = 0, missedCheckoutCount = 0;
-        for (const userDoc of usersSnapshot.docs) {
-            const user = userDoc.data();
-            const userId = user.email;
+            const attendanceRecord = attendanceMap.get(userId);
+            const leaveRecord = leaveMap.get(userId);
 
-            // --- START OF NEW CHECK INSIDE THE LOOP ---
-            // 2. Skip this user if it's a designated non-working day for their department.
-            if (holidayDepts.includes(user.primaryDepartment)) {
-                console.log(`Skipping attendance check for ${user.name} because it is a designated non-working day for the ${user.primaryDepartment} department.`);
-                continue; // Go to the next user
-            }
-            // --- END OF NEW CHECK INSIDE THE LOOP ---
+            if (leaveRecord) continue;
 
+            if (!attendanceRecord) {
+                const exceptionRef = db.collection('attendanceExceptions').doc();
+                batch.set(exceptionRef, {
+                    date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
+                    type: 'Absent', details: 'No check-in record and no approved leave.', status: 'Pending',
+                    acknowledged: false
+                });
+                const notificationRef = db.collection('users').doc(userId).collection('notifications').doc();
+                batch.set(notificationRef, {
+                    type: 'AttendanceAlert', message: `You were marked as absent on ${todayStr}. Please apply for leave or contact your manager.`,
+                    createdAt: FieldValue.serverTimestamp(), read: false
+                });
+                absentCount++;
+                continue;
+            }
 
-            const attendanceRecord = attendanceMap.get(userId);
-            const leaveRecord = leaveMap.get(userId);
+            const schedule = user.workSchedule[dayOfWeek];
 
-            if (leaveRecord) continue;
-
-            if (!attendanceRecord) {
-                const exceptionRef = db.collection('attendanceExceptions').doc();
-                batch.set(exceptionRef, {
-                    date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
-                   type: 'Absent', details: 'No check-in record and no approved leave.', status: 'Pending',
-                   acknowledged: false // <-- ADD THIS LINE
-                });
-                const notificationRef = db.collection('users').doc(userId).collection('notifications').doc();
-                batch.set(notificationRef, {
-                    type: 'AttendanceAlert', message: `You were marked as absent on ${todayStr}. Please apply for leave or contact your manager.`,
-                   createdAt: FieldValue.serverTimestamp(), read: false
-                });
-                absentCount++;
-                continue;
-            }
-
-              const schedule = user.workSchedule[dayOfWeek];
-
-              if (schedule && schedule.checkIn) {
-                const checkInTime = moment(attendanceRecord.checkInTime.toDate()).tz('Asia/Kuala_Lumpur');
-                const expectedCheckInTime = moment(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm').tz('Asia/Kuala_Lumpur');
-                if (checkInTime.isAfter(expectedCheckInTime)) {
-                    const exceptionRef = db.collection('attendanceExceptions').doc();
-                    batch.set(exceptionRef, {
-                        date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
-                        type: 'Late', details: `Checked in at ${checkInTime.format('HH:mm')} instead of ${schedule.checkIn}.`, status: 'Pending',
-                        acknowledged: false // <-- ADD THIS LINE
-                    });
-                    lateCount++;
-                }
-            }
-            if (!attendanceRecord.checkOutTime) {
-                const exceptionRef = db.collection('attendanceExceptions').doc();
-                batch.set(exceptionRef, {
-                    date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
-                    type: 'MissedCheckout', details: 'User checked in but did not check out.', status: 'Pending',
-                    acknowledged: false // <-- ADD THIS LINE
-                });
-                const notificationRef = db.collection('users').doc(userId).collection('notifications').doc();
-                batch.set(notificationRef, {
-                    type: 'AttendanceAlert', message: `You missed your check-out on ${todayStr}. Please remember to check out.`,
-                    createdAt: FieldValue.serverTimestamp(), read: false
-                });
-                missedCheckoutCount++;
-            }
-        }
-        console.log(`Run Summary: ${absentCount} Absent, ${lateCount} Late, ${missedCheckoutCount} Missed Checkouts.`);
-        await batch.commit();
-        console.log('Successfully processed daily attendance.');
-    } catch (error) {
-        console.error('Error processing daily attendance:', error);
-    }
+            if (schedule && schedule.checkIn) {
+                const checkInTime = moment(attendanceRecord.checkInTime.toDate()).tz('Asia/Kuala_Lumpur');
+                const expectedCheckInTime = moment(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm').tz('Asia/Kuala_Lumpur');
+                if (checkInTime.isAfter(expectedCheckInTime)) {
+                    const exceptionRef = db.collection('attendanceExceptions').doc();
+                    batch.set(exceptionRef, {
+                        date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
+                        type: 'Late', details: `Checked in at ${checkInTime.format('HH:mm')} instead of ${schedule.checkIn}.`, status: 'Pending',
+                        acknowledged: false
+                    });
+                    lateCount++;
+                }
+            }
+            if (!attendanceRecord.checkOutTime) {
+                const exceptionRef = db.collection('attendanceExceptions').doc();
+                batch.set(exceptionRef, {
+                    date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
+                    type: 'MissedCheckout', details: 'User checked in but did not check out.', status: 'Pending',
+                    acknowledged: false
+                });
+                const notificationRef = db.collection('users').doc(userId).collection('notifications').doc();
+                batch.set(notificationRef, {
+                    type: 'AttendanceAlert', message: `You missed your check-out on ${todayStr}. Please remember to check out.`,
+                    createdAt: FieldValue.serverTimestamp(), read: false
+                });
+                missedCheckoutCount++;
+            }
+        }
+        console.log(`Run Summary: ${absentCount} Absent, ${lateCount} Late, ${missedCheckoutCount} Missed Checkouts.`);
+        await batch.commit();
+        console.log('Successfully processed daily attendance.');
+    } catch (error) {
+        console.error('Error processing daily attendance:', error);
+    }
 };
+
+
 
 // =================================================================================
 // SCHEDULED FUNCTION 2: processDailyAttendance (This was already v2)

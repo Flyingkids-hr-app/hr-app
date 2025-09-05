@@ -1,7 +1,7 @@
 // --- Firebase Initialization ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, getIdToken, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, connectAuthEmulator } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, serverTimestamp, collection, getDocs, query, where, limit, orderBy, addDoc, runTransaction, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, connectFirestoreEmulator, doc, getDoc, setDoc, updateDoc, serverTimestamp, collection, getDocs, query, where, limit, orderBy, addDoc, runTransaction, deleteDoc, documentId } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject, connectStorageEmulator } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
@@ -931,7 +931,7 @@ const renderMyJob = async () => {
 // Find and replace this entire function in app.js
 const renderSettings = async () => {
     pageTitle.textContent = 'Settings';
-    if (!userData || !userData.roles.includes('Director')) {
+    if (!userData || !(userData.roles.includes('Director') || userData.roles.includes('HR'))) {
         contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">You do not have permission to view this page.</div>`;
         return;
     }
@@ -939,9 +939,45 @@ const renderSettings = async () => {
         await fetchAppConfig();
     }
 
-    // NEW: HTML now includes all 3 cards
+    // --- NEW: HTML for the Calendar Management Card ---
+    const calendarCardHTML = `
+        <div class="md:col-span-3 bg-white p-6 rounded-lg shadow">
+            <h3 class="text-xl font-semibold mb-4 border-b pb-2">Manage Company Calendar</h3>
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
+                <div class="md:col-span-3">
+                    <h4 class="font-medium text-gray-800 mb-2">Add a Non-Working Day</h4>
+                    <div class="p-4 bg-gray-50 rounded-lg space-y-4">
+                        <div>
+                            <label for="cal-date" class="block text-sm font-medium text-gray-700">Date</label>
+                            <input type="date" id="cal-date" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                        <div>
+                            <label for="cal-desc" class="block text-sm font-medium text-gray-700">Description</label>
+                            <input type="text" id="cal-desc" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="e.g., Company Anniversary">
+                        </div>
+                        <div>
+                            <label for="cal-depts" class="block text-sm font-medium text-gray-700">Applies To</label>
+                            <select id="cal-depts" multiple class="mt-1 block w-full h-32 py-2 px-3 border border-gray-300 rounded-md shadow-sm"></select>
+                        </div>
+                        <div class="text-right">
+                             <button id="add-holiday-btn" class="bg-teal-600 text-white font-bold py-2 px-4 rounded hover:bg-teal-700">Add Non-Working Day</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="md:col-span-2">
+                     <h4 class="font-medium text-gray-800 mb-2">Upcoming Non-Working Days</h4>
+                     <div id="calendar-list" class="space-y-2 max-h-96 overflow-y-auto border p-2 rounded-lg">
+                        <p class="text-gray-500 text-center p-4">Loading...</p>
+                     </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // --- EXISTING HTML with the new card added at the top ---
     let settingsHTML = `
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            ${calendarCardHTML}
             <div class="bg-white p-6 rounded-lg shadow">
                 <h3 class="text-xl font-semibold mb-4 border-b pb-2">Manage Departments</h3>
                 <div id="departments-list" class="space-y-2 mb-4 max-h-96 overflow-y-auto"></div>
@@ -950,30 +986,18 @@ const renderSettings = async () => {
                     <button id="add-dept-btn" class="bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600">Add</button>
                 </div>
             </div>
-
             <div class="bg-white p-6 rounded-lg shadow">
                 <h3 class="text-xl font-semibold mb-4 border-b pb-2">Manage Request Types</h3>
                 <div id="request-types-list" class="space-y-2 mb-4 max-h-96 overflow-y-auto"></div>
                 <div class="border-t pt-4 space-y-3">
                      <input type="text" id="new-req-type-name" class="w-full py-2 px-3 border border-gray-300 rounded-md" placeholder="New Request Type Name">
                      <div class="space-y-2 pl-2">
-                         <label class="flex items-center space-x-2">
-                             <input type="checkbox" id="new-req-type-quota" class="form-checkbox h-5 w-5 text-indigo-600">
-                             <span class="text-gray-700">Has Quota (deducts from balance)</span>
-                         </label>
-                         <label class="flex items-center space-x-2">
-                             <input type="checkbox" id="new-req-type-paid" class="form-checkbox h-5 w-5 text-indigo-600">
-                             <span class="text-gray-700">Is Paid Leave (for Payroll)</span>
-                         </label>
-                         <label class="flex items-center space-x-2">
-                             <input type="checkbox" id="new-req-type-cross-dept" class="form-checkbox h-5 w-5 text-indigo-600">
-                             <span class="text-gray-700">Cross-Department OT (for Payroll)</span>
-                         </label>
+                        <label class="flex items-center space-x-2"><input type="checkbox" id="new-req-type-quota" class="form-checkbox h-5 w-5 text-indigo-600"><span class="text-gray-700">Has Quota (deducts from balance)</span></label>
+                        <label class="flex items-center space-x-2"><input type="checkbox" id="new-req-type-paid" class="form-checkbox h-5 w-5 text-indigo-600"><span class="text-gray-700">Is Paid Leave (for Payroll)</span></label>
                      </div>
                     <button id="add-req-type-btn" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600">Add</button>
                 </div>
             </div>
-
             <div class="bg-white p-6 rounded-lg shadow">
                 <h3 class="text-xl font-semibold mb-4 border-b pb-2">Manage Claim Types</h3>
                 <div id="claim-types-list" class="space-y-2 mb-4 max-h-96 overflow-y-auto"></div>
@@ -981,8 +1005,8 @@ const renderSettings = async () => {
                      <input type="text" id="new-claim-type-name" class="w-full py-2 px-3 border border-gray-300 rounded-md" placeholder="New Claim Type Name">
                      <label for="new-claim-type-category" class="block text-sm font-medium text-gray-700">Category</label>
                      <select id="new-claim-type-category" class="w-full py-2 px-3 border border-gray-300 rounded-md">
-                        <option value="Reimbursement">Reimbursement</option>
-                        <option value="Allowance">Allowance</option>
+                         <option value="Reimbursement">Reimbursement</option>
+                         <option value="Allowance">Allowance</option>
                      </select>
                     <button id="add-claim-type-btn" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-600">Add</button>
                 </div>
@@ -995,8 +1019,120 @@ const renderSettings = async () => {
         </div>
     `;
     contentArea.innerHTML = settingsHTML;
-    
-    // Initialize local copies of the settings arrays
+
+    // --- LOGIC FOR THE NEW CALENDAR CARD ---
+    const isDirector = userData.roles.includes('Director');
+    const calDeptsSelect = document.getElementById('cal-depts');
+    const calListContainer = document.getElementById('calendar-list');
+
+    // Populate department selector based on role
+    let deptOptionsHTML = '';
+    if (isDirector) {
+        deptOptionsHTML += `<option value="__ALL__">All Departments (Global)</option>`;
+    }
+    const departmentsToShow = isDirector ? appConfig.availableDepartments : (userData.managedDepartments || []);
+    departmentsToShow.forEach(dept => {
+        deptOptionsHTML += `<option value="${dept}">${dept}</option>`;
+    });
+    calDeptsSelect.innerHTML = deptOptionsHTML;
+
+    // Function to fetch and render the list of upcoming holidays
+    const renderCalendarList = async () => {
+        calListContainer.innerHTML = '<p class="text-gray-500 text-center p-4">Loading...</p>';
+        try {
+            const todayStr = new Date().toISOString().split('T')[0];
+                        // --- THIS IS THE FIX ---
+            // We use the special FieldPath.documentId() to query by the document's name (which is our date string)
+            const q = query(
+                collection(db, 'companyCalendar'), 
+                where(documentId(), '>=', todayStr), 
+                orderBy(documentId())
+            );
+// --- END OF FIX ---
+            const snapshot = await getDocs(q);
+
+            if (snapshot.empty) {
+                calListContainer.innerHTML = '<p class="text-gray-500 text-center p-4">No upcoming non-working days.</p>';
+                return;
+            }
+
+            let listHTML = '';
+            snapshot.forEach(doc => {
+                const holiday = doc.data();
+                const appliesToStr = holiday.appliesTo.includes('__ALL__') ? 'All Departments' : holiday.appliesTo.join(', ');
+                listHTML += `
+                    <div class="p-2 bg-gray-50 rounded group flex justify-between items-center">
+                        <div>
+                            <p class="font-medium text-gray-900">${formatDate(doc.id)} - ${holiday.description}</p>
+                            <p class="text-xs text-gray-600">Applies to: ${appliesToStr}</p>
+                        </div>
+                        <button class="delete-holiday-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-id="${doc.id}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                `;
+            });
+            calListContainer.innerHTML = listHTML;
+
+            // Add event listeners to the new delete buttons
+            document.querySelectorAll('.delete-holiday-btn').forEach(btn => {
+                btn.addEventListener('click', handleDeleteHoliday);
+            });
+        } catch (error) {
+            console.error("Error fetching calendar events:", error);
+            calListContainer.innerHTML = '<p class="text-red-500 text-center p-4">Could not load list.</p>';
+        }
+    };
+
+    const handleDeleteHoliday = async (e) => {
+        const holidayId = e.currentTarget.dataset.id;
+        if (!confirm(`Are you sure you want to delete the non-working day for ${holidayId}?`)) return;
+
+        try {
+            await deleteDoc(doc(db, 'companyCalendar', holidayId));
+            await renderCalendarList(); // Refresh the list
+        } catch (error) {
+            console.error("Error deleting holiday:", error);
+            alert(`Failed to delete holiday: ${error.message}`);
+        }
+    };
+
+    document.getElementById('add-holiday-btn').addEventListener('click', async (e) => {
+        const button = e.currentTarget;
+        const date = document.getElementById('cal-date').value;
+        const description = document.getElementById('cal-desc').value.trim();
+        const selectedDepts = Array.from(document.getElementById('cal-depts').selectedOptions).map(opt => opt.value);
+
+        if (!date || !description || selectedDepts.length === 0) {
+            alert("Please fill in all fields: Date, Description, and Applies To.");
+            return;
+        }
+
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        try {
+            const holidayRef = doc(db, 'companyCalendar', date);
+            const holidayData = {
+                description: description,
+                appliesTo: selectedDepts,
+                createdBy: currentUser.email,
+                createdAt: serverTimestamp()
+            };
+            await setDoc(holidayRef, holidayData);
+            document.getElementById('cal-date').value = '';
+            document.getElementById('cal-desc').value = '';
+            await renderCalendarList(); // Refresh the list
+        } catch (error) {
+            console.error("Error adding holiday:", error);
+            alert(`Failed to add non-working day: ${error.message}`);
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Add Non-Working Day';
+        }
+    });
+
+    // --- Logic for Existing Cards (NOW WITH FULL CODE) ---
     let currentDepartments = JSON.parse(JSON.stringify(appConfig.availableDepartments || []));
     let currentRequestTypes = JSON.parse(JSON.stringify(appConfig.requestTypes || []));
     let currentClaimTypes = JSON.parse(JSON.stringify(appConfig.claimTypes || []));
@@ -1037,7 +1173,6 @@ const renderSettings = async () => {
                     <div class="flex space-x-2 mt-1">
                         <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.hasQuota ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}">Has Quota</span>
                         <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.isPaidLeave ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">Is Paid</span>
-                        <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.isCrossDepartmental ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-700'}">Cross-Dept OT</span>
                     </div>
                 </div>
                 <button class="delete-req-type-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-index="${index}"><i class="fas fa-trash-alt"></i></button>
@@ -1057,18 +1192,17 @@ const renderSettings = async () => {
         const nameInput = document.getElementById('new-req-type-name');
         const quotaInput = document.getElementById('new-req-type-quota');
         const paidInput = document.getElementById('new-req-type-paid');
-        const crossDeptInput = document.getElementById('new-req-type-cross-dept');
         const newName = nameInput.value.trim();
         if (newName && !currentRequestTypes.some(rt => rt.name.toLowerCase() === newName.toLowerCase())) {
-            currentRequestTypes.push({ name: newName, hasQuota: quotaInput.checked, isPaidLeave: paidInput.checked, isCrossDepartmental: crossDeptInput.checked });
+            currentRequestTypes.push({ name: newName, hasQuota: quotaInput.checked, isPaidLeave: paidInput.checked });
             currentRequestTypes.sort((a, b) => a.name.localeCompare(b.name));
             nameInput.value = '';
-            quotaInput.checked = paidInput.checked = crossDeptInput.checked = false;
+            quotaInput.checked = paidInput.checked = false;
             updateReqTypeList();
         } else if (newName) { alert('This request type already exists.'); }
     });
 
-    // --- Logic for Claim Types (NEW) ---
+    // --- Logic for Claim Types ---
     const updateClaimTypeList = () => {
         const listEl = document.getElementById('claim-types-list');
         listEl.innerHTML = currentClaimTypes.map((type, index) => `
@@ -1102,7 +1236,7 @@ const renderSettings = async () => {
         } else if (newName) { alert('This claim type already exists.'); }
     });
 
-    // --- Logic for the main Save Button (UPDATED) ---
+    // --- Logic for the main Save Button ---
     document.getElementById('save-settings-btn').addEventListener('click', async (e) => {
         const button = e.currentTarget;
         if (!confirm("Are you sure you want to save these changes to the application configuration? This may affect all users.")) return;
@@ -1113,10 +1247,10 @@ const renderSettings = async () => {
             await updateDoc(configRef, {
                 availableDepartments: currentDepartments,
                 requestTypes: currentRequestTypes,
-                claimTypes: currentClaimTypes // Now saves claim types too
+                claimTypes: currentClaimTypes
             });
             alert('Settings updated successfully!');
-            await fetchAppConfig(); // Refresh the global config state
+            appConfig = await fetchAppConfig(); // Refresh the global config state
             navigateTo('settings'); // Re-render the page
         } catch (error) {
             console.error("Error saving settings:", error);
@@ -1129,8 +1263,10 @@ const renderSettings = async () => {
     // Initial render of all lists
     updateDeptList();
     updateReqTypeList();
-    updateClaimTypeList(); // New function call
+    updateClaimTypeList();
+    renderCalendarList();
 };
+
 
 // Add this entire new function
 const renderSystemHealth = async () => {
