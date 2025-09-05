@@ -366,15 +366,16 @@ exports.generatePayrollReport = onCall({
     if (!year || !month || !userIds || !Array.isArray(userIds) || userIds.length === 0) {
         throw new HttpsError('invalid-argument', 'The function must be called with a year, month, and a list of user IDs.');
     }
-    if (userIds.length > 30) {
-        throw new HttpsError('invalid-argument', 'Cannot process more than 30 users at a time.');
+    if (userIds.length > 50) { // Increased limit slightly
+        throw new HttpsError('invalid-argument', 'Cannot process more than 50 users at a time.');
     }
 
     // 3. --- BLOCKER: CHECK FOR PENDING EXCEPTIONS ---
     const startDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').startOf('month').format('YYYY-MM-DD');
     const endDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').endOf('month').format('YYYY-MM-DD');
+    
     const exceptionsQuery = await db.collection('attendanceExceptions')
-        .where('status', 'in', ['Pending', 'Corrected']) // Block if pending OR corrected but not resolved
+        .where('status', 'in', ['Pending', 'Corrected']) // Block if pending OR corrected but not yet resolved
         .where('userId', 'in', userIds)
         .where('date', '>=', startDateStr)
         .where('date', '<=', endDateStr)
@@ -382,7 +383,8 @@ exports.generatePayrollReport = onCall({
         .get();
 
     if (!exceptionsQuery.empty) {
-        throw new HttpsError('failed-precondition', 'Cannot generate report. There are unresolved attendance exceptions for the selected period. Please resolve them first.');
+        const pendingException = exceptionsQuery.docs[0].data();
+        throw new HttpsError('failed-precondition', `Cannot generate report. At least one unresolved attendance exception exists for ${pendingException.userName} on ${pendingException.date}. Please resolve all exceptions in the 'Attendance Exceptions' report first.`);
     }
 
     // 4. --- DATA FETCHING ---
@@ -404,7 +406,7 @@ exports.generatePayrollReport = onCall({
 
         const payrollData = [];
 
-        // --- NEW: Identify all unique allowance types used this period ---
+        // --- Identify all unique allowance types used this period ---
         const claimTypesConfig = appConfig.claimTypes || [];
         const usedAllowanceTypes = new Set();
         allClaims.forEach(claim => {
@@ -426,13 +428,13 @@ exports.generatePayrollReport = onCall({
             let totalAllowances = 0;
             let totalReimbursements = 0;
             
-            // NEW: Create an object to hold the breakdown for each allowance type
+            // Create an object to hold the breakdown for each allowance type
             const allowanceDetails = {};
             sortedAllowanceTypes.forEach(typeName => {
                 allowanceDetails[`${typeName} (RM)`] = 0;
             });
 
-            // A. Calculate Total Workdays
+            // A. Calculate Total Workdays based on schedule
             const monthStart = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur');
             const daysInMonth = monthStart.daysInMonth();
             for (let day = 1; day <= daysInMonth; day++) {
@@ -469,7 +471,7 @@ exports.generatePayrollReport = onCall({
                     totalAllowances += claim.amount;
                     // Add the amount to the specific allowance column
                     allowanceDetails[`${claim.claimType} (RM)`] += claim.amount;
-                } else {
+                } else { // This includes Reimbursements and any legacy types
                     totalReimbursements += claim.amount;
                 }
             }
@@ -478,14 +480,14 @@ exports.generatePayrollReport = onCall({
             payrollData.push({
                 Name: user.name,
                 Department: user.primaryDepartment,
-                TotalWorkdays: totalWorkdays,
-                TotalAttendDays: totalAttendDays,
-                'Paid Leave (Hours)': paidLeaveHours,
-                'Unpaid Leave (Hours)': unpaidLeaveHours,
-                'Own Department OT (Hours)': ownDeptOtHours,
+                Total_Workdays: totalWorkdays,
+                Total_Attend_Days: totalAttendDays,
+                'Paid_Leave_Hours': paidLeaveHours,
+                'Unpaid_Leave_Hours': unpaidLeaveHours,
+                'Own_Dept_OT_Hours': ownDeptOtHours,
                 ...allowanceDetails, // Add the dynamic allowance columns
-                'Total Allowances (RM)': parseFloat(totalAllowances.toFixed(2)),
-                'Total Reimbursements (RM)': parseFloat(totalReimbursements.toFixed(2))
+                'Total_Allowances_RM': parseFloat(totalAllowances.toFixed(2)),
+                'Total_Reimbursements_RM': parseFloat(totalReimbursements.toFixed(2))
             });
         }
 
@@ -493,7 +495,7 @@ exports.generatePayrollReport = onCall({
         return payrollData;
     } catch (error) {
         console.error("Error generating payroll report:", error);
-        throw new HttpsError("internal", "An unexpected error occurred while generating the report.", error);
+        throw new HttpsError("internal", "An unexpected error occurred while generating the report.", error.message);
     }
 });
 

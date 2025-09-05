@@ -1407,61 +1407,117 @@ const renderLiveStatusReport = () => {
 };
 
 
+// =================================================================================
+// START: REPORTS PAGE FUNCTIONS
+// (find the renderPayrollReport function in this section and replace it)
+// =================================================================================
+
 const renderPayrollReport = async () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
-    
-    dataContainer.innerHTML = `<p class="text-center p-4">Please select users and a month to generate a report.</p>`;
+    let payrollReportData = []; // To store data for export
+
+    // Initial state of the data container
+    dataContainer.innerHTML = `<p class="text-center p-4">Please select filters and generate a report.</p>`;
 
     try {
-        // 1. Fetch all users to populate the multi-select dropdown
+        // Fetch all active users and departments in parallel
         const usersSnapshot = await getDocs(query(collection(db, 'users'), where('status', '==', 'active'), orderBy('name')));
         const allActiveUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const allDepartments = appConfig.availableDepartments || [];
 
-        let userOptions = allActiveUsers.map(user => `<option value="${user.email}">${user.name}</option>`).join('');
+        // 2. Render the new two-stage filter UI
+        const deptOptions = allDepartments.map(dept => `<option value="${dept}">${dept}</option>`).join('');
 
-        // 2. Render the filters UI
         filtersContainer.innerHTML = `
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 border rounded-lg">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 border rounded-lg bg-gray-50">
+                <div class="md:col-span-1">
+                    <label for="payroll-departments" class="block text-sm font-medium text-gray-700">1. Select Departments</label>
+                    <select id="payroll-departments" multiple class="mt-1 block w-full h-48 py-2 px-3 border border-gray-300 rounded-md shadow-sm">
+                        ${deptOptions}
+                    </select>
+                </div>
                 <div class="md:col-span-2">
-                    <label for="payroll-users" class="block text-sm font-medium text-gray-700">Select Users (multiple allowed)</label>
-                    <select id="payroll-users" multiple class="mt-1 block w-full h-48 py-2 px-3 border border-gray-300 rounded-md">
-                        ${userOptions}
+                    <label for="payroll-employees" class="block text-sm font-medium text-gray-700">2. Select Employees</label>
+                    <select id="payroll-employees" multiple class="mt-1 block w-full h-48 py-2 px-3 border border-gray-300 rounded-md bg-gray-100" disabled>
+                        <option>Select departments first</option>
                     </select>
                     <div class="mt-2 text-sm">
                         <button id="payroll-select-all" class="text-indigo-600 hover:underline">Select All</button> |
                         <button id="payroll-deselect-all" class="text-indigo-600 hover:underline">Deselect All</button>
                     </div>
                 </div>
-                <div>
-                    <label for="payroll-month" class="block text-sm font-medium text-gray-700">Select Month</label>
-                    <input type="month" id="payroll-month" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
-                </div>
-                <div class="flex items-end">
-                    <button id="generate-payroll-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">
-                        <i class="fas fa-cogs mr-2"></i>Generate Report
-                    </button>
+                <div class="md:col-span-1 space-y-4">
+                    <div>
+                        <label for="payroll-month" class="block text-sm font-medium text-gray-700">3. Select Month</label>
+                        <input type="month" id="payroll-month" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <div class="flex items-end h-full pb-8">
+                         <button id="generate-payroll-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 shadow">
+                             <i class="fas fa-cogs mr-2"></i>Generate Report
+                         </button>
+                    </div>
                 </div>
             </div>
+            <div id="payroll-actions-container" class="flex justify-end mb-4"></div>
         `;
 
-        // 3. Add event listeners for the filter controls
-        const usersSelect = document.getElementById('payroll-users');
-        document.getElementById('payroll-select-all').addEventListener('click', () => {
-            Array.from(usersSelect.options).forEach(option => option.selected = true);
-        });
-        document.getElementById('payroll-deselect-all').addEventListener('click', () => {
-            Array.from(usersSelect.options).forEach(option => option.selected = false);
+        // 3. Add event listeners
+        const deptSelect = document.getElementById('payroll-departments');
+        const empSelect = document.getElementById('payroll-employees');
+        const generateBtn = document.getElementById('generate-payroll-btn');
+        const actionsContainer = document.getElementById('payroll-actions-container');
+
+        // Event listener for department selection change
+        deptSelect.addEventListener('change', () => {
+            const selectedDepts = Array.from(deptSelect.selectedOptions).map(opt => opt.value);
+            empSelect.innerHTML = ''; // Clear current options
+
+            if (selectedDepts.length === 0) {
+                empSelect.innerHTML = '<option>Select departments first</option>';
+                empSelect.disabled = true;
+                empSelect.classList.add('bg-gray-100');
+                return;
+            }
+
+            const filteredUsers = allActiveUsers.filter(user => selectedDepts.includes(user.primaryDepartment));
+
+            if (filteredUsers.length > 0) {
+                 filteredUsers.forEach(user => {
+                     // Add each user as an option, pre-selected
+                     empSelect.innerHTML += `<option value="${user.email}" selected>${user.name} (${user.primaryDepartment})</option>`;
+                 });
+                 empSelect.disabled = false;
+                 empSelect.classList.remove('bg-gray-100');
+            } else {
+                empSelect.innerHTML = '<option>No employees in selected department(s)</option>';
+                empSelect.disabled = true;
+                empSelect.classList.add('bg-gray-100');
+            }
         });
 
-        document.getElementById('generate-payroll-btn').addEventListener('click', async () => {
-            const selectedUsers = Array.from(usersSelect.selectedOptions).map(option => option.value);
+        // Event listeners for select/deselect all employees
+        document.getElementById('payroll-select-all').addEventListener('click', () => {
+            Array.from(empSelect.options).forEach(option => option.selected = true);
+        });
+        document.getElementById('payroll-deselect-all').addEventListener('click', () => {
+            Array.from(empSelect.options).forEach(option => option.selected = false);
+        });
+
+        // Event listener for the generate report button
+        generateBtn.addEventListener('click', async () => {
+            const selectedUsers = Array.from(empSelect.selectedOptions).map(option => option.value);
             const monthValue = document.getElementById('payroll-month').value;
 
             if (selectedUsers.length === 0 || !monthValue) {
-                alert('Please select at least one user and a month.');
+                alert('Please select at least one department, one employee, and a month.');
                 return;
             }
+            
+            actionsContainer.innerHTML = ''; // Clear old export button
+            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data... This may take a moment.</p>`;
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...';
 
             const [year, month] = monthValue.split('-');
             const payload = {
@@ -1470,31 +1526,30 @@ const renderPayrollReport = async () => {
                 month: parseInt(month)
             };
 
-            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data... This may take a moment.</p>`;
-
             try {
-                // 4. Call the Cloud Function
-                const generatePayrollReport = httpsCallable(functions, 'generatePayrollReport');
-                const result = await generatePayrollReport(payload);
+                // Call the Cloud Function
+                const generatePayrollReportFunc = httpsCallable(functions, 'generatePayrollReport');
+                const result = await generatePayrollReportFunc(payload);
                 const reportData = result.data;
+                payrollReportData = reportData; // Store for export
 
                 if (!reportData || reportData.length === 0) {
                     dataContainer.innerHTML = `<p class="text-center p-4">No data returned for the selected criteria.</p>`;
                     return;
                 }
 
-                // 5. Render the results table
+                // Render the results table
                 const headers = Object.keys(reportData[0]);
-                let tableHTML = `
+                const tableHTML = `
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
-                                <tr>${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h}</th>`).join('')}</tr>
+                                <tr>${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h.replace(/_/g, ' ')}</th>`).join('')}</tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 ${reportData.map(row => `
                                     <tr>
-                                        ${headers.map(header => `<td class="px-6 py-4 whitespace-nowrap">${row[header]}</td>`).join('')}
+                                        ${headers.map(header => `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${row[header] === null || row[header] === undefined ? '' : row[header]}</td>`).join('')}
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -1502,15 +1557,29 @@ const renderPayrollReport = async () => {
                     </div>
                 `;
                 dataContainer.innerHTML = tableHTML;
+
+                // Add and show the Export button
+                actionsContainer.innerHTML = `
+                    <button id="export-payroll-csv-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 shadow-sm">
+                        <i class="fas fa-file-csv mr-2"></i>Export CSV
+                    </button>
+                `;
+                document.getElementById('export-payroll-csv-btn').addEventListener('click', () => {
+                    exportToCSV(payrollReportData, `payroll-summary-${monthValue}`);
+                });
+
             } catch (error) {
                 console.error("Error calling generatePayrollReport:", error);
                 dataContainer.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded-lg"><strong>Error:</strong> ${error.message}</div>`;
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = '<i class="fas fa-cogs mr-2"></i>Generate Report';
             }
         });
 
     } catch (error) {
         console.error("Error rendering payroll report page:", error);
-        filtersContainer.innerHTML = `<p class="text-red-600">Could not load user list for filters.</p>`;
+        filtersContainer.innerHTML = `<p class="text-red-600">Could not load data for filters.</p>`;
     }
 };
 
