@@ -66,6 +66,45 @@
         </div>
     </div>
 
+<!-- ======================================================================= -->
+<!-- START: NEW ANNOUNCEMENT MODAL -->
+<!-- ======================================================================= -->
+<div id="announcement-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+    <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-center border-b pb-3">
+            <h3 class="text-2xl font-bold text-gray-900">Create New Announcement</h3>
+            <button id="announcement-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+        </div>
+        <div class="mt-5">
+            <form id="announcement-form">
+                <div class="space-y-4">
+                    <div>
+                        <label for="announcement-title" class="block text-sm font-medium text-gray-700">Title</label>
+                        <input type="text" id="announcement-title" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="e.g., Office Closure Notice">
+                    </div>
+                    <div>
+                        <label for="announcement-content" class="block text-sm font-medium text-gray-700">Content</label>
+                        <textarea id="announcement-content" rows="5" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="Enter the full announcement message here..."></textarea>
+                    </div>
+                    <div>
+                        <label for="announcement-departments" class="block text-sm font-medium text-gray-700">Target Departments</label>
+                        <select id="announcement-departments" multiple required class="mt-1 block w-full h-32 py-2 px-3 border border-gray-300 rounded-md shadow-sm"></select>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3 border-t pt-4">
+                    <button id="announcement-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Post Announcement</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<!-- ======================================================================= -->
+<!-- END: NEW ANNOUNCEMENT MODAL -->
+<!-- ======================================================================= -->
+
+
+
     <!-- Edit User Modal -->
     <div id="edit-user-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
         <div class="relative mx-auto p-5 border w-full max-w-3xl shadow-lg rounded-md bg-white">

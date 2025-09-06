@@ -81,7 +81,10 @@ const resolveExceptionModal = document.getElementById('resolve-exception-modal')
 const resolveExceptionForm = document.getElementById('resolve-exception-form');
 const resolveExceptionModalCloseButton = document.getElementById('resolve-exception-modal-close-button');
 const resolveExceptionModalCancelButton = document.getElementById('resolve-exception-modal-cancel-button');
-
+const announcementModal = document.getElementById('announcement-modal');
+const announcementForm = document.getElementById('announcement-form');
+const announcementModalCloseButton = document.getElementById('announcement-modal-close-button');
+const announcementModalCancelButton = document.getElementById('announcement-modal-cancel-button');
 
 // --- Global State ---
 let currentUser = null;
@@ -271,6 +274,32 @@ const handleAcknowledgeException = async (e) => {
     }
 };
 
+const handleAcknowledgeAnnouncement = async (e) => {
+    const button = e.currentTarget;
+    const announcementId = button.dataset.id;
+    const banner = document.getElementById(`announcement-${announcementId}`);
+
+    button.disabled = true;
+    button.textContent = 'Acknowledging...';
+
+    try {
+        const ackRef = doc(db, 'announcements', announcementId, 'acknowledgements', currentUser.email);
+        await setDoc(ackRef, {
+            timestamp: serverTimestamp(),
+            userName: userData.name
+        });
+
+        if (banner) {
+            banner.remove();
+        }
+
+    } catch (error) {
+        console.error("Error acknowledging announcement:", error);
+        alert("Failed to acknowledge the announcement. Please try again.");
+        button.disabled = false;
+        button.textContent = 'Acknowledge';
+    }
+};
 
 // --- Data & Auth ---
 const handleSignIn = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { console.error(e); } };
@@ -358,6 +387,60 @@ const renderDashboard = async () => {
         return await getDocs(q);
     };
 
+    const fetchAndRenderAnnouncements = async () => {
+        const container = document.getElementById('dashboard-announcements-container');
+        if (!container) return;
+
+        try {
+            const announcementsQuery = query(
+                collection(db, 'announcements'),
+                where('targetDepartments', 'array-contains-any', [userData.primaryDepartment, '__ALL__']),
+                orderBy('createdAt', 'desc'),
+                limit(10)
+            );
+            const snapshot = await getDocs(announcementsQuery);
+
+            if (snapshot.empty) {
+                container.innerHTML = '';
+                return;
+            }
+
+            let announcementsHtml = '';
+            const unacknowledgedAnnouncements = [];
+
+            for (const docSnap of snapshot.docs) {
+                const announcement = { id: docSnap.id, ...docSnap.data() };
+                const ackRef = doc(db, 'announcements', announcement.id, 'acknowledgements', currentUser.email);
+                const ackDoc = await getDoc(ackRef);
+                if (!ackDoc.exists()) {
+                    unacknowledgedAnnouncements.push(announcement);
+                }
+            }
+
+            unacknowledgedAnnouncements.forEach(announcement => {
+                announcementsHtml += `
+                    <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
+                        <div class="flex justify-between items-start">
+                             <div>
+                                <p class="font-bold">${announcement.title}</p>
+                                <p class="text-sm mt-1">${announcement.content}</p>
+                                <p class="text-xs text-blue-600 mt-2">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+                             </div>
+                             <button data-id="${announcement.id}" class="acknowledge-announcement-btn ml-4 px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600 flex-shrink-0">Acknowledge</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = announcementsHtml;
+
+        } catch (error) {
+            console.error("Error fetching announcements:", error);
+            container.innerHTML = '<p class="text-red-500">Could not load announcements.</p>';
+        }
+    };
+
+
     try {
         const [
             managerApprovalsCount, 
@@ -391,7 +474,11 @@ const renderDashboard = async () => {
         const currentYear = new Date().getFullYear();
         const yearOptions = [currentYear, currentYear + 1, currentYear + 2].map(y => `<option value="${y}">${y}</option>`).join('');
 
+        const canAnnounceRoles = ['Director', 'HR Head', 'DepartmentManager', 'HR', 'Finance', 'Purchaser', 'Admin', 'RegionalDirector', 'IT', 'RespiteManager'];
+        const canAnnounce = userData.roles.some(role => canAnnounceRoles.includes(role));
+
         let dashboardHtml = `
+            <div id="dashboard-announcements-container" class="space-y-4 mb-6"></div>
             <div id="dashboard-alerts-container" class="space-y-4 mb-6">${alertsHtml}</div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow">
@@ -408,6 +495,7 @@ const renderDashboard = async () => {
                 <div class="bg-white p-6 rounded-lg shadow">
                     <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
                     <div class="grid grid-cols-1 gap-4">
+                        ${canAnnounce ? '<button id="open-announcement-modal-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700">Make Announcement</button>' : ''}
                         <button onclick="navigateTo('leave-ot')" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700">New Leave/OT Request</button>
                         <button onclick="navigateTo('claims')" class="w-full bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700">New Expense Claim</button>
                         <button onclick="navigateTo('attendance')" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700">Record Attendance</button>
@@ -415,7 +503,7 @@ const renderDashboard = async () => {
                 </div>`;
         
         if (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager')) {
-            dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3><p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p><p class="text-gray-500">items need your attention.</p></div>`;
+             dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3><p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p><p class="text-gray-500">items need your attention.</p></div>`;
         }
         if (userData.roles.includes('Finance')) {
             const totalAmount = financeClaims.reduce((sum, claim) => sum + claim.amount, 0);
@@ -436,6 +524,8 @@ const renderDashboard = async () => {
 
         contentArea.innerHTML = dashboardHtml;
         
+        await fetchAndRenderAnnouncements();
+
         const yearSelector = document.getElementById('dashboard-leave-year-selector');
         yearSelector.addEventListener('change', (e) => updateDashboardLeaveBalances(e.target.value));
         updateDashboardLeaveBalances(currentYear);
@@ -444,12 +534,18 @@ const renderDashboard = async () => {
             btn.addEventListener('click', handleAcknowledgeException);
         });
 
+        document.querySelectorAll('.acknowledge-announcement-btn').forEach(btn => {
+            btn.addEventListener('click', handleAcknowledgeAnnouncement);
+        });
+        if (canAnnounce) {
+            document.getElementById('open-announcement-modal-btn').addEventListener('click', openAnnouncementModal);
+        }
+
     } catch (error) {
         console.error("Error building dashboard:", error);
         contentArea.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-lg">Failed to load dashboard. ${error.message}</div>`;
     }
 };
-
 const renderMyDocuments = async () => {
     pageTitle.textContent = 'My Documents';
     contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow">Loading documents...</div>`;
@@ -3448,6 +3544,66 @@ const handlePurchaseRequestSubmit = async (e) => {
     }
 };
 
+const openAnnouncementModal = () => {
+    announcementForm.reset();
+    const deptSelect = document.getElementById('announcement-departments');
+    
+    const isGlobalAnnouncer = userData.roles.includes('Director') || userData.roles.includes('HR Head');
+    const departmentsToShow = isGlobalAnnouncer ? appConfig.availableDepartments : (userData.managedDepartments || []);
+
+    let deptOptionsHTML = '';
+    if (isGlobalAnnouncer) {
+        deptOptionsHTML += `<option value="__ALL__">All Departments (Global)</option>`;
+    }
+    departmentsToShow.forEach(dept => {
+        deptOptionsHTML += `<option value="${dept}">${dept}</option>`;
+    });
+    deptSelect.innerHTML = deptOptionsHTML;
+
+    announcementModal.classList.remove('hidden');
+};
+
+const closeAnnouncementModal = () => announcementModal.classList.add('hidden');
+
+const handleAnnouncementSubmit = async (e) => {
+    e.preventDefault();
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Posting...';
+
+    const title = document.getElementById('announcement-title').value.trim();
+    const content = document.getElementById('announcement-content').value.trim();
+    const targetDepartments = Array.from(document.getElementById('announcement-departments').selectedOptions).map(opt => opt.value);
+
+    if (!title || !content || targetDepartments.length === 0) {
+        alert("Please fill out all fields.");
+        submitButton.disabled = false;
+        submitButton.textContent = 'Post Announcement';
+        return;
+    }
+
+    try {
+        const newAnnouncement = {
+            title: title,
+            content: content,
+            targetDepartments: targetDepartments,
+            creatorId: currentUser.email,
+            creatorName: userData.name,
+            createdAt: serverTimestamp()
+        };
+        await addDoc(collection(db, 'announcements'), newAnnouncement);
+        alert('Announcement posted successfully!');
+        closeAnnouncementModal();
+        navigateTo('dashboard'); // Refresh dashboard to see the new announcement
+    } catch (error) {
+        console.error("Error posting announcement:", error);
+        alert(`Failed to post announcement: ${error.message}`);
+        submitButton.disabled = false;
+        submitButton.textContent = 'Post Announcement';
+    }
+};
+
+
 // --- UI Rendering & Router ---
 // Add this entire new function
 // Find and replace this entire function in app.js
@@ -3573,6 +3729,10 @@ correctAttendanceForm.addEventListener('submit', handleCorrectAttendanceSubmit);
 resolveExceptionModalCloseButton.addEventListener('click', closeResolveExceptionModal);
 resolveExceptionModalCancelButton.addEventListener('click', closeResolveExceptionModal);
 resolveExceptionForm.addEventListener('submit', handleResolveExceptionSubmit);
+announcementModalCloseButton.addEventListener('click', closeAnnouncementModal);
+announcementModalCancelButton.addEventListener('click', closeAnnouncementModal);
+announcementForm.addEventListener('submit', handleAnnouncementSubmit);
+
 
 document.getElementById('request-type').addEventListener('change', (e) => {
     const selectedOption = e.target.options[e.target.selectedIndex];
