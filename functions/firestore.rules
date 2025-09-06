@@ -121,7 +121,8 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && (resource.data.creatorId == request.auth.token.email || hasAnyRole(['Director']));
       
       match /acknowledgements/{userEmail} {
-        allow read: if isSignedIn() && request.auth.token.email == userEmail;
+        allow get: if isSignedIn() && request.auth.token.email == userEmail;
+        allow list: if hasAnyRole(['Director']);
         allow create: if isSignedIn() && request.auth.token.email == userEmail;
         allow update, delete: if false;
       }
