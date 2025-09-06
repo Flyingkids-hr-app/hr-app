@@ -132,6 +132,7 @@ exports.getSupportAssignableUsers = onCall(async (request) => {
 
 // Add this entire new function to functions/index.js
 // =================================================================================
+// =================================================================================
 // HTTPS CALLABLE FUNCTION: getLiveTeamStatus
 // =================================================================================
 exports.getLiveTeamStatus = onCall({
@@ -165,10 +166,23 @@ exports.getLiveTeamStatus = onCall({
         const todayStr = now.format('YYYY-MM-DD');
         const dayOfWeek = now.format('dddd');
 
+        // --- NEW LOGIC START: CHECK FOR HOLIDAYS FIRST ---
+        const holidayRef = db.collection('companyCalendar').doc(todayStr);
+        const holidayDoc = await holidayRef.get();
+        let holidayDepts = [];
+        let holidayDescription = '';
+
+        if (holidayDoc.exists) {
+            const holidayData = holidayDoc.data();
+            holidayDepts = holidayData.appliesTo || [];
+            holidayDescription = holidayData.description || 'Holiday';
+        }
+        // --- NEW LOGIC END ---
+
         // 3. Fetch all necessary data in parallel
         const teamMembersQuery = db.collection('users')
             .where('status', '==', 'active')
-            .where('primaryDepartment', 'in', managedDepts.length > 0 ? managedDepts : ['null']) // Avoid empty 'in' query
+            .where('primaryDepartment', 'in', managedDepts.length > 0 ? managedDepts : ['null'])
             .get();
             
         const attendanceQuery = db.collection('attendance')
@@ -208,17 +222,24 @@ exports.getLiveTeamStatus = onCall({
             const user = doc.data();
             const schedule = user.workSchedule ? user.workSchedule[dayOfWeek] : null;
 
-            // Check 1: Is the user on leave?
+            // --- NEW CHECK ---
+            // Check 1: Is today a designated non-working day for this user?
+            if (holidayDepts.includes(user.primaryDepartment) || holidayDepts.includes('__ALL__')) {
+                return { name: user.name, department: user.primaryDepartment, status: 'On Holiday', details: holidayDescription };
+            }
+            // --- END NEW CHECK ---
+
+            // Check 2: Is the user on leave?
             if (leaveMap.has(user.email)) {
                 return { name: user.name, department: user.primaryDepartment, status: 'On Leave', details: leaveMap.get(user.email).type };
             }
 
-            // Check 2: Is the user scheduled to work today?
+            // Check 3: Is the user scheduled to work today?
             if (!schedule || !schedule.active) {
                 return { name: user.name, department: user.primaryDepartment, status: 'Not Scheduled', details: 'Not scheduled to work today.' };
             }
 
-            // Check 3: Has the user checked in?
+            // Check 4: Has the user checked in?
             const attendanceRecord = attendanceMap.get(user.email);
             if (!attendanceRecord) {
                 const expectedCheckInTime = moment.tz(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
@@ -229,7 +250,7 @@ exports.getLiveTeamStatus = onCall({
                 }
             }
 
-            // Check 4: If checked in, were they late?
+            // Check 5: If checked in, were they late?
             const checkInTime = moment(attendanceRecord.checkInTime.toDate()).tz('Asia/Kuala_Lumpur');
             const expectedCheckInTime = moment.tz(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
             if (checkInTime.isAfter(expectedCheckInTime)) {
@@ -247,6 +268,7 @@ exports.getLiveTeamStatus = onCall({
         throw new HttpsError("internal", "An unexpected error occurred.", error);
     }
 });
+
 
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: correctAttendanceRecord (NEW)
