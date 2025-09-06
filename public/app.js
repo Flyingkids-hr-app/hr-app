@@ -85,6 +85,10 @@ const announcementModal = document.getElementById('announcement-modal');
 const announcementForm = document.getElementById('announcement-form');
 const announcementModalCloseButton = document.getElementById('announcement-modal-close-button');
 const announcementModalCancelButton = document.getElementById('announcement-modal-cancel-button');
+const viewAcknowledgementsModal = document.getElementById('view-acknowledgements-modal');
+const viewAcknowledgementsModalCloseButton = document.getElementById('view-acknowledgements-modal-close-button');
+const viewAcknowledgementsModalCancelButton = document.getElementById('view-acknowledgements-modal-cancel-button');
+
 
 // --- Global State ---
 let currentUser = null;
@@ -2386,12 +2390,79 @@ const renderAttendanceReport = () => {
     fetchData();
 };
 
+const renderAnnouncementsReport = async () => {
+    const contentContainer = document.getElementById('report-content-container');
+    contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`;
+    const filtersContainer = document.getElementById('report-filters');
+    const dataContainer = document.getElementById('report-data-container');
+    let currentAnnouncementsData = [];
+
+    const fetchData = async () => {
+        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching announcements...</p>`;
+        
+        let q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
+        
+        const department = document.getElementById('report-department')?.value;
+        if (department) {
+            q = query(q, where('targetDepartments', 'array-contains', department));
+        }
+
+        try {
+            const snapshot = await getDocs(q);
+            currentAnnouncementsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            let tableHTML = `<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created By</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Departments</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+            if (currentAnnouncementsData.length === 0) {
+                tableHTML += `<tr><td colspan="5" class="p-4 text-center text-gray-500">No announcements found.</td></tr>`;
+            } else {
+                currentAnnouncementsData.forEach(ann => {
+                    const depts = ann.targetDepartments.includes('__ALL__') ? 'All Departments' : ann.targetDepartments.join(', ');
+                    tableHTML += `<tr>
+                        <td class="px-6 py-4 whitespace-nowrap">${formatDate(ann.createdAt)}</td>
+                        <td class="px-6 py-4">${ann.title}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${ann.creatorName}</td>
+                        <td class="px-6 py-4">${depts}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button class="view-acknowledgements-btn text-indigo-600 hover:text-indigo-900" data-id="${ann.id}">View Status</button>
+                        </td>
+                    </tr>`;
+                });
+            }
+            tableHTML += `</tbody></table></div>`;
+            dataContainer.innerHTML = tableHTML;
+
+            document.querySelectorAll('.view-acknowledgements-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => openViewAcknowledgementsModal(e.currentTarget.dataset.id));
+            });
+
+        } catch (error) {
+            console.error("Error fetching announcements report:", error);
+            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data. A Firestore index may be required.</p>`;
+        }
+    };
+
+    let deptOptions = appConfig.availableDepartments.map(d => `<option value="${d}">${d}</option>`).join('');
+    filtersContainer.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div>
+                <label for="report-department" class="block text-sm font-medium text-gray-700">Filter by Department</label>
+                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                    <option value="">All Departments</option>
+                    ${deptOptions}
+                </select>
+            </div>
+            <div class="flex items-end"><button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filter</button></div>
+        </div>`;
+    
+    document.getElementById('apply-filters-btn').addEventListener('click', fetchData);
+    fetchData(); // Initial load
+};
+
+// --- And then REPLACE the existing loadReport and renderReports functions ---
 const loadReport = (reportType) => {
     const contentContainer = document.getElementById('report-content-container');
     contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`;
-    const dataContainer = document.getElementById('report-data-container');
-    dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading report...</p>`;
-
+    
     switch (reportType) {
         case 'livestatus':
             renderLiveStatusReport();
@@ -2417,13 +2488,23 @@ const loadReport = (reportType) => {
         case 'attendance':
             renderAttendanceReport();
             break;
+        case 'announcements':
+             renderAnnouncementsReport();
+             break;
         default:
-            dataContainer.innerHTML = '<p class="text-center p-4">Select a report type.</p>';
+            document.getElementById('report-data-container').innerHTML = '<p class="text-center p-4">Select a report type.</p>';
     }
 };
 
 const renderReports = async () => {
     pageTitle.textContent = 'Reports';
+
+    const isDirector = userData.roles.includes('Director');
+    
+    const announcementsTab = isDirector 
+        ? '<button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="announcements">Announcements</button>' 
+        : '';
+
     contentArea.innerHTML = `
         <div class="bg-white p-6 rounded-lg shadow">
             <div class="mb-4 border-b border-gray-200">
@@ -2436,6 +2517,7 @@ const renderReports = async () => {
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="claims">Claims</button>
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="purchasing">Purchasing</button>
                     <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="attendance">Attendance History</button>
+                    ${announcementsTab}
                 </nav>
             </div>
             <div id="report-content-container"></div>
@@ -3603,6 +3685,115 @@ const handleAnnouncementSubmit = async (e) => {
     }
 };
 
+const closeViewAcknowledgementsModal = () => viewAcknowledgementsModal.classList.add('hidden');
+
+const openViewAcknowledgementsModal = async (announcementId) => {
+    const modalTitle = document.getElementById('view-acknowledgements-modal-title');
+    const modalBody = document.getElementById('view-acknowledgements-modal-body');
+    const modalFooter = document.getElementById('view-acknowledgements-modal-footer');
+
+    modalTitle.textContent = 'Loading Status...';
+    modalBody.innerHTML = '<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading acknowledgement data...</p>';
+    modalFooter.classList.add('hidden'); // Hide footer until data is loaded
+    viewAcknowledgementsModal.classList.remove('hidden');
+
+    let dataForExport = [];
+
+    try {
+        // Step 1: Fetch the announcement and its acknowledgements in parallel
+        const announcementRef = doc(db, 'announcements', announcementId);
+        const acknowledgementsRef = collection(db, 'announcements', announcementId, 'acknowledgements');
+
+        const [announcementSnap, acknowledgementsSnap] = await Promise.all([
+            getDoc(announcementRef),
+            getDocs(acknowledgementsRef)
+        ]);
+
+        if (!announcementSnap.exists()) {
+            throw new Error("Announcement not found.");
+        }
+
+        const announcement = announcementSnap.data();
+        modalTitle.textContent = `Status for: "${announcement.title}"`;
+        
+        const acknowledgementsMap = new Map();
+        acknowledgementsSnap.forEach(doc => {
+            acknowledgementsMap.set(doc.id, doc.data());
+        });
+
+        // Step 2: Determine the list of target users
+        const targetDepts = announcement.targetDepartments;
+        let usersQuery;
+        if (targetDepts.includes('__ALL__')) {
+            usersQuery = query(collection(db, 'users'), where('status', '==', 'active'));
+        } else {
+            usersQuery = query(collection(db, 'users'), where('status', '==', 'active'), where('primaryDepartment', 'in', targetDepts));
+        }
+        
+        const usersSnap = await getDocs(usersQuery);
+        const targetUsers = usersSnap.docs.map(doc => doc.data());
+
+        if (targetUsers.length === 0) {
+            modalBody.innerHTML = '<p class="text-center p-4">No target users found for this announcement.</p>';
+            return;
+        }
+
+        // Step 3: Build the status list and prepare data for export
+        let statusHTML = '<ul class="divide-y divide-gray-200">';
+        let acknowledgedCount = 0;
+        
+        targetUsers.sort((a, b) => a.name.localeCompare(b.name)).forEach(user => {
+            const ackData = acknowledgementsMap.get(user.email);
+            const hasAcknowledged = !!ackData;
+            if(hasAcknowledged) acknowledgedCount++;
+
+            dataForExport.push({
+                Employee: user.name,
+                Department: user.primaryDepartment,
+                Status: hasAcknowledged ? 'Acknowledged' : 'Not Acknowledged',
+                AcknowledgedAt: hasAcknowledged ? formatDate(ackData.timestamp) : 'N/A'
+            });
+
+            statusHTML += `
+                <li class="py-3 flex justify-between items-center">
+                    <div>
+                       <p class="text-gray-800">${user.name}</p>
+                       <p class="text-xs text-gray-500">${user.primaryDepartment}</p>
+                    </div>
+                    ${hasAcknowledged
+                        ? `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Acknowledged</span>`
+                        : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Not Acknowledged</span>`
+                    }
+                </li>
+            `;
+        });
+        statusHTML += '</ul>';
+
+        modalBody.innerHTML = `
+            <div class="mb-4">
+                <p class="font-semibold text-gray-700">Summary: ${acknowledgedCount} of ${targetUsers.length} users have acknowledged.</p>
+            </div>
+            ${statusHTML}
+        `;
+
+        // Step 4: Add Export CSV button to footer
+        modalFooter.innerHTML = `
+            <button id="export-acknowledgements-csv" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"><i class="fas fa-file-csv mr-2"></i>Export CSV</button>
+            <button id="view-acknowledgements-modal-cancel-button-inner" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>
+        `;
+        modalFooter.classList.remove('hidden');
+        document.getElementById('export-acknowledgements-csv').addEventListener('click', () => {
+            exportToCSV(dataForExport, `acknowledgement-status-${announcement.title.replace(/ /g, '_')}`);
+        });
+        document.getElementById('view-acknowledgements-modal-cancel-button-inner').addEventListener('click', closeViewAcknowledgementsModal);
+
+
+    } catch (error) {
+        console.error("Error fetching acknowledgement status:", error);
+        modalBody.innerHTML = `<p class="text-red-500 text-center p-4">Error: ${error.message}</p>`;
+    }
+};
+
 
 // --- UI Rendering & Router ---
 // Add this entire new function
@@ -3732,7 +3923,8 @@ resolveExceptionForm.addEventListener('submit', handleResolveExceptionSubmit);
 announcementModalCloseButton.addEventListener('click', closeAnnouncementModal);
 announcementModalCancelButton.addEventListener('click', closeAnnouncementModal);
 announcementForm.addEventListener('submit', handleAnnouncementSubmit);
-
+viewAcknowledgementsModalCloseButton.addEventListener('click', closeViewAcknowledgementsModal);
+viewAcknowledgementsModalCancelButton.addEventListener('click', closeViewAcknowledgementsModal);
 
 document.getElementById('request-type').addEventListener('change', (e) => {
     const selectedOption = e.target.options[e.target.selectedIndex];
