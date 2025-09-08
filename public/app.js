@@ -1653,7 +1653,6 @@ const renderPayrollReport = async () => {
     const dataContainer = document.getElementById('report-data-container');
     let payrollReportData = []; // To store data for export
 
-    // Initial state of the data container
     dataContainer.innerHTML = `<p class="text-center p-4">Please select filters and generate a report.</p>`;
 
     try {
@@ -1662,27 +1661,24 @@ const renderPayrollReport = async () => {
         const allActiveUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         const allDepartments = appConfig.availableDepartments || [];
 
-        // 2. Render the new two-stage filter UI
-        const deptOptions = allDepartments.map(dept => `<option value="${dept}">${dept}</option>`).join('');
-
+        // --- NEW UI WITH CHECKBOXES ---
         filtersContainer.innerHTML = `
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 border rounded-lg bg-gray-50">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6 p-4 border rounded-lg bg-gray-50">
+                <!-- Department List -->
                 <div class="md:col-span-1">
-                    <label for="payroll-departments" class="block text-sm font-medium text-gray-700">1. Select Departments</label>
-                    <select id="payroll-departments" multiple class="mt-1 block w-full h-48 py-2 px-3 border border-gray-300 rounded-md shadow-sm">
-                        ${deptOptions}
-                    </select>
-                </div>
-                <div class="md:col-span-2">
-                    <label for="payroll-employees" class="block text-sm font-medium text-gray-700">2. Select Employees</label>
-                    <select id="payroll-employees" multiple class="mt-1 block w-full h-48 py-2 px-3 border border-gray-300 rounded-md bg-gray-100" disabled>
-                        <option>Select departments first</option>
-                    </select>
-                    <div class="mt-2 text-sm">
-                        <button id="payroll-select-all" class="text-indigo-600 hover:underline">Select All</button> |
-                        <button id="payroll-deselect-all" class="text-indigo-600 hover:underline">Deselect All</button>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">1. Select Departments</label>
+                    <div id="payroll-departments-list" class="bg-white p-2 border border-gray-300 rounded-md h-48 overflow-y-auto space-y-2">
+                        <!-- Checkboxes will be rendered here -->
                     </div>
                 </div>
+                <!-- Employee List -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">2. Select Employees</label>
+                    <div id="payroll-employees-list" class="bg-gray-100 p-2 border border-gray-300 rounded-md h-48 overflow-y-auto space-y-2">
+                        <p class="text-gray-500 text-sm p-2">Select one or more departments to populate this list.</p>
+                    </div>
+                </div>
+                <!-- Month Selector and Buttons -->
                 <div class="md:col-span-1 space-y-4">
                     <div>
                         <label for="payroll-month" class="block text-sm font-medium text-gray-700">3. Select Month</label>
@@ -1698,84 +1694,119 @@ const renderPayrollReport = async () => {
             <div id="payroll-actions-container" class="flex justify-end mb-4"></div>
         `;
 
-        // 3. Add event listeners
-        const deptSelect = document.getElementById('payroll-departments');
-        const empSelect = document.getElementById('payroll-employees');
+        const deptListContainer = document.getElementById('payroll-departments-list');
+        const empListContainer = document.getElementById('payroll-employees-list');
         const generateBtn = document.getElementById('generate-payroll-btn');
         const actionsContainer = document.getElementById('payroll-actions-container');
 
-        // Event listener for department selection change
-        deptSelect.addEventListener('change', () => {
-            const selectedDepts = Array.from(deptSelect.selectedOptions).map(opt => opt.value);
-            empSelect.innerHTML = ''; // Clear current options
+        // --- LOGIC TO RENDER AND MANAGE CHECKBOXES ---
 
+        // Function to render the department list
+        const renderDepartments = () => {
+            let deptHtml = `
+                <div class="border-b pb-2 mb-2">
+                    <label class="flex items-center space-x-2 px-1">
+                        <input type="checkbox" id="dept-select-all" class="form-checkbox h-4 w-4 text-indigo-600">
+                        <span class="font-semibold text-gray-700">Select All</span>
+                    </label>
+                </div>`;
+            allDepartments.forEach(dept => {
+                deptHtml += `
+                    <label class="flex items-center space-x-2 px-1 rounded hover:bg-gray-100">
+                        <input type="checkbox" class="form-checkbox h-4 w-4 text-indigo-600 dept-checkbox" value="${dept}">
+                        <span class="text-sm text-gray-800">${dept}</span>
+                    </label>`;
+            });
+            deptListContainer.innerHTML = deptHtml;
+        };
+
+        // Function to update the employee list based on selected departments
+        const updateEmployeeList = () => {
+            const selectedDepts = Array.from(deptListContainer.querySelectorAll('.dept-checkbox:checked')).map(cb => cb.value);
+            
             if (selectedDepts.length === 0) {
-                empSelect.innerHTML = '<option>Select departments first</option>';
-                empSelect.disabled = true;
-                empSelect.classList.add('bg-gray-100');
+                empListContainer.innerHTML = '<p class="text-gray-500 text-sm p-2">Select one or more departments to populate this list.</p>';
+                empListContainer.classList.add('bg-gray-100');
                 return;
             }
 
+            empListContainer.classList.remove('bg-gray-100');
             const filteredUsers = allActiveUsers.filter(user => selectedDepts.includes(user.primaryDepartment));
 
+            let empHtml = `
+                <div class="border-b pb-2 mb-2">
+                    <label class="flex items-center space-x-2 px-1">
+                        <input type="checkbox" id="emp-select-all" class="form-checkbox h-4 w-4 text-indigo-600" checked>
+                        <span class="font-semibold text-gray-700">Select All</span>
+                    </label>
+                </div>`;
+
             if (filteredUsers.length > 0) {
-                 filteredUsers.forEach(user => {
-                     // Add each user as an option, pre-selected
-                     empSelect.innerHTML += `<option value="${user.email}" selected>${user.name} (${user.primaryDepartment})</option>`;
-                 });
-                 empSelect.disabled = false;
-                 empSelect.classList.remove('bg-gray-100');
+                filteredUsers.forEach(user => {
+                    empHtml += `
+                        <label class="flex items-center space-x-2 px-1 rounded hover:bg-gray-100">
+                            <input type="checkbox" class="form-checkbox h-4 w-4 text-indigo-600 emp-checkbox" value="${user.email}" checked>
+                            <span class="text-sm text-gray-800">${user.name} (${user.primaryDepartment})</span>
+                        </label>`;
+                });
             } else {
-                empSelect.innerHTML = '<option>No employees in selected department(s)</option>';
-                empSelect.disabled = true;
-                empSelect.classList.add('bg-gray-100');
+                empHtml += '<p class="text-gray-500 text-sm p-2">No employees found in the selected department(s).</p>';
+            }
+            empListContainer.innerHTML = empHtml;
+        };
+        
+        // Initial render of the department list
+        renderDepartments();
+
+        // --- EVENT LISTENERS ---
+        deptListContainer.addEventListener('change', (e) => {
+            if (e.target.matches('#dept-select-all')) {
+                // Handle "Select All" for departments
+                const isChecked = e.target.checked;
+                deptListContainer.querySelectorAll('.dept-checkbox').forEach(cb => cb.checked = isChecked);
+            }
+            // Always update the employee list on any change in the department container
+            updateEmployeeList();
+        });
+
+        empListContainer.addEventListener('change', (e) => {
+            if (e.target.matches('#emp-select-all')) {
+                // Handle "Select All" for employees
+                const isChecked = e.target.checked;
+                empListContainer.querySelectorAll('.emp-checkbox').forEach(cb => cb.checked = isChecked);
             }
         });
-
-        // Event listeners for select/deselect all employees
-        document.getElementById('payroll-select-all').addEventListener('click', () => {
-            Array.from(empSelect.options).forEach(option => option.selected = true);
-        });
-        document.getElementById('payroll-deselect-all').addEventListener('click', () => {
-            Array.from(empSelect.options).forEach(option => option.selected = false);
-        });
-
-        // Event listener for the generate report button
+        
+        // Generate Report Button Logic
         generateBtn.addEventListener('click', async () => {
-            const selectedUsers = Array.from(empSelect.selectedOptions).map(option => option.value);
+            const selectedUsers = Array.from(empListContainer.querySelectorAll('.emp-checkbox:checked')).map(cb => cb.value);
             const monthValue = document.getElementById('payroll-month').value;
 
             if (selectedUsers.length === 0 || !monthValue) {
-                alert('Please select at least one department, one employee, and a month.');
+                alert('Please select at least one employee and a month.');
                 return;
             }
             
-            actionsContainer.innerHTML = ''; // Clear old export button
-            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data... This may take a moment.</p>`;
+            actionsContainer.innerHTML = '';
+            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data...</p>`;
             generateBtn.disabled = true;
             generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...';
 
+            // ... (The rest of the logic to call the cloud function is the same) ...
             const [year, month] = monthValue.split('-');
-            const payload = {
-                userIds: selectedUsers,
-                year: parseInt(year),
-                month: parseInt(month)
-            };
+            const payload = { userIds: selectedUsers, year: parseInt(year), month: parseInt(month) };
 
             try {
-                // Call the Cloud Function
                 const generatePayrollReportFunc = httpsCallable(functions, 'generatePayrollReport');
                 const result = await generatePayrollReportFunc(payload);
-                const reportData = result.data;
-                payrollReportData = reportData; // Store for export
+                payrollReportData = result.data;
 
-                if (!reportData || reportData.length === 0) {
+                if (!payrollReportData || payrollReportData.length === 0) {
                     dataContainer.innerHTML = `<p class="text-center p-4">No data returned for the selected criteria.</p>`;
                     return;
                 }
 
-                // Render the results table
-                const headers = Object.keys(reportData[0]);
+                const headers = Object.keys(payrollReportData[0]);
                 const tableHTML = `
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
@@ -1783,18 +1814,16 @@ const renderPayrollReport = async () => {
                                 <tr>${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h.replace(/_/g, ' ')}</th>`).join('')}</tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                ${reportData.map(row => `
+                                ${payrollReportData.map(row => `
                                     <tr>
                                         ${headers.map(header => `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${row[header] === null || row[header] === undefined ? '' : row[header]}</td>`).join('')}
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
-                    </div>
-                `;
+                    </div>`;
                 dataContainer.innerHTML = tableHTML;
 
-                // Add and show the Export button
                 actionsContainer.innerHTML = `
                     <button id="export-payroll-csv-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 shadow-sm">
                         <i class="fas fa-file-csv mr-2"></i>Export CSV
@@ -1818,6 +1847,8 @@ const renderPayrollReport = async () => {
         filtersContainer.innerHTML = `<p class="text-red-600">Could not load data for filters.</p>`;
     }
 };
+
+
 
 // Replace the entire renderExceptionsReport function with this new version
 const renderExceptionsReport = () => {
