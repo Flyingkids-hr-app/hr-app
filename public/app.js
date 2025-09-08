@@ -1661,7 +1661,7 @@ const renderPayrollReport = async () => {
         const allActiveUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         const allDepartments = appConfig.availableDepartments || [];
 
-        // --- NEW UI WITH CHECKBOXES ---
+        // --- UI WITH CORRECTION FOR BUTTON LAYOUT ---
         filtersContainer.innerHTML = `
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6 p-4 border rounded-lg bg-gray-50">
                 <!-- Department List -->
@@ -1684,20 +1684,20 @@ const renderPayrollReport = async () => {
                         <label for="payroll-month" class="block text-sm font-medium text-gray-700">3. Select Month</label>
                         <input type="month" id="payroll-month" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm">
                     </div>
-                    <div class="flex items-end h-full pb-8">
+                    <!-- THIS IS THE SHARED CONTAINER FOR BUTTONS -->
+                    <div id="payroll-actions-container" class="flex flex-col space-y-2 pt-5">
                          <button id="generate-payroll-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 shadow">
                              <i class="fas fa-cogs mr-2"></i>Generate Report
                          </button>
                     </div>
                 </div>
             </div>
-            <div id="payroll-actions-container" class="flex justify-end mb-4"></div>
         `;
 
         const deptListContainer = document.getElementById('payroll-departments-list');
         const empListContainer = document.getElementById('payroll-employees-list');
-        const generateBtn = document.getElementById('generate-payroll-btn');
-        const actionsContainer = document.getElementById('payroll-actions-container');
+        const actionsContainer = document.getElementById('payroll-actions-container');  
+        
 
         // --- LOGIC TO RENDER AND MANAGE CHECKBOXES ---
 
@@ -1758,27 +1758,25 @@ const renderPayrollReport = async () => {
         // Initial render of the department list
         renderDepartments();
 
-        // --- EVENT LISTENERS ---
+       // --- EVENT LISTENERS ---
         deptListContainer.addEventListener('change', (e) => {
             if (e.target.matches('#dept-select-all')) {
-                // Handle "Select All" for departments
                 const isChecked = e.target.checked;
                 deptListContainer.querySelectorAll('.dept-checkbox').forEach(cb => cb.checked = isChecked);
             }
-            // Always update the employee list on any change in the department container
             updateEmployeeList();
         });
 
         empListContainer.addEventListener('change', (e) => {
             if (e.target.matches('#emp-select-all')) {
-                // Handle "Select All" for employees
                 const isChecked = e.target.checked;
                 empListContainer.querySelectorAll('.emp-checkbox').forEach(cb => cb.checked = isChecked);
             }
         });
         
         // Generate Report Button Logic
-        generateBtn.addEventListener('click', async () => {
+        document.getElementById('generate-payroll-btn').addEventListener('click', async () => {
+            const generateBtn = document.getElementById('generate-payroll-btn');
             const selectedUsers = Array.from(empListContainer.querySelectorAll('.emp-checkbox:checked')).map(cb => cb.value);
             const monthValue = document.getElementById('payroll-month').value;
 
@@ -1787,12 +1785,19 @@ const renderPayrollReport = async () => {
                 return;
             }
             
-            actionsContainer.innerHTML = '';
-            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data...</p>`;
+            // --- FIX START ---
+            // 1. Disable the button and show loading state FIRST
             generateBtn.disabled = true;
             generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...';
+            
+            // 2. Clear previous report data and remove ONLY the old export button if it exists
+            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data...</p>`;
+            const oldExportBtn = document.getElementById('export-payroll-csv-btn');
+            if (oldExportBtn) {
+                oldExportBtn.remove();
+            }
+            // --- FIX END ---
 
-            // ... (The rest of the logic to call the cloud function is the same) ...
             const [year, month] = monthValue.split('-');
             const payload = { userIds: selectedUsers, year: parseInt(year), month: parseInt(month) };
 
@@ -1824,12 +1829,14 @@ const renderPayrollReport = async () => {
                     </div>`;
                 dataContainer.innerHTML = tableHTML;
 
-                actionsContainer.innerHTML = `
-                    <button id="export-payroll-csv-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 shadow-sm">
-                        <i class="fas fa-file-csv mr-2"></i>Export CSV
-                    </button>
-                `;
-                document.getElementById('export-payroll-csv-btn').addEventListener('click', () => {
+                // --- FIX: Create and APPEND the new export button ---
+                const exportButton = document.createElement('button');
+                exportButton.id = 'export-payroll-csv-btn';
+                exportButton.className = 'w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 shadow-sm';
+                exportButton.innerHTML = `<i class="fas fa-file-csv mr-2"></i>Export CSV`;
+                actionsContainer.appendChild(exportButton);
+                
+                exportButton.addEventListener('click', () => {
                     exportToCSV(payrollReportData, `payroll-summary-${monthValue}`);
                 });
 
@@ -1837,6 +1844,7 @@ const renderPayrollReport = async () => {
                 console.error("Error calling generatePayrollReport:", error);
                 dataContainer.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded-lg"><strong>Error:</strong> ${error.message}</div>`;
             } finally {
+                // The generateBtn reference is always valid now
                 generateBtn.disabled = false;
                 generateBtn.innerHTML = '<i class="fas fa-cogs mr-2"></i>Generate Report';
             }
@@ -1847,6 +1855,7 @@ const renderPayrollReport = async () => {
         filtersContainer.innerHTML = `<p class="text-red-600">Could not load data for filters.</p>`;
     }
 };
+
 
 
 
