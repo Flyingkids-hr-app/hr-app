@@ -860,44 +860,36 @@ const renderApprovals = async () => {
     const isFinance = userData.roles.includes('Finance');
     const isPurchaser = userData.roles.includes('Purchaser');
     const isManager = userData.managedDepartments && userData.managedDepartments.length > 0;
-    const isDirector = userData.roles.includes('Director');
+    const isDirectorOrHR = userData.roles.some(r => ['Director', 'HR'].includes(r));
     
     try {
         let finalHtml = '';
         const approvalPromises = [];
 
-        if (!isPurchaser && !isFinance) {
-            let q;
-            if (isDirector || userData.roles.includes('HR')) {
-                q = query(collection(db, 'requests'), where('status', '==', 'Pending'), orderBy('createdAt', 'desc'));
-            } else if (isManager) {
-                q = query(collection(db, 'requests'), where('status', '==', 'Pending'), where('department', 'in', userData.managedDepartments), orderBy('createdAt', 'desc'));
+        // --- Build Queries Based on User Roles ---
+
+        // 1. For Managers: Fetch PENDING requests in their departments
+        if (isManager || isDirectorOrHR) {
+            const deptsToQuery = isDirectorOrHR ? appConfig.availableDepartments : userData.managedDepartments;
+            
+            if (deptsToQuery && deptsToQuery.length > 0) {
+                 // Leave/OT Requests
+                approvalPromises.push(getDocs(query(collection(db, 'requests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQuery))).then(snap => ({type: 'requests', docs: snap.docs})));
+                // Claims
+                approvalPromises.push(getDocs(query(collection(db, 'claims'), where('status', '==', 'Pending'), where('department', 'in', deptsToQuery))).then(snap => ({type: 'claims', docs: snap.docs})));
+                // Purchase Requests
+                approvalPromises.push(getDocs(query(collection(db, 'purchaseRequests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQuery))).then(snap => ({type: 'purchaseRequests', docs: snap.docs})));
             }
-            if(q) approvalPromises.push(getDocs(q).then(snapshot => ({type: 'requests', docs: snapshot.docs})));
         }
 
-        if (!isPurchaser) {
-            let q;
-             if (isFinance) {
-                q = query(collection(db, 'claims'), where('status', '==', 'Approved'), orderBy('createdAt', 'desc'));
-            } else if (isDirector) {
-                 q = query(collection(db, 'claims'), where('status', '==', 'Pending'), orderBy('createdAt', 'desc'));
-            } else if (isManager) {
-                q = query(collection(db, 'claims'), where('status', '==', 'Pending'), where('department', 'in', userData.managedDepartments), orderBy('createdAt', 'desc'));
-            }
-            if(q) approvalPromises.push(getDocs(q).then(snapshot => ({type: 'claims', docs: snapshot.docs})));
+        // 2. For Finance: Fetch APPROVED claims across ALL departments
+        if (isFinance) {
+            approvalPromises.push(getDocs(query(collection(db, 'claims'), where('status', '==', 'Approved'))).then(snap => ({type: 'claims', docs: snap.docs})));
         }
 
-        if (!isFinance) {
-            let q;
-            if (isPurchaser) {
-                q = query(collection(db, 'purchaseRequests'), where('status', 'in', ['Approved', 'Processing']), orderBy('createdAt', 'desc'));
-            } else if (isDirector) {
-                q = query(collection(db, 'purchaseRequests'), where('status', '==', 'Pending'), orderBy('createdAt', 'desc'));
-            } else if (isManager) {
-                q = query(collection(db, 'purchaseRequests'), where('status', '==', 'Pending'), where('department', 'in', userData.managedDepartments), orderBy('createdAt', 'desc'));
-            }
-            if(q) approvalPromises.push(getDocs(q).then(snapshot => ({type: 'purchaseRequests', docs: snapshot.docs})));
+        // 3. For Purchasers: Fetch APPROVED or PROCESSING purchase requests across ALL departments
+        if (isPurchaser) {
+            approvalPromises.push(getDocs(query(collection(db, 'purchaseRequests'), where('status', 'in', ['Approved', 'Processing']))).then(snap => ({type: 'purchaseRequests', docs: snap.docs})));
         }
 
         const results = await Promise.all(approvalPromises);
@@ -910,7 +902,11 @@ const renderApprovals = async () => {
 
         results.forEach(result => {
             result.docs.forEach(doc => {
-                sections[result.type].items.push({ id: doc.id, ...doc.data() });
+                // Prevent duplicates if a user has multiple roles (e.g., Manager and Finance)
+                const itemExists = sections[result.type].items.some(item => item.id === doc.id);
+                if (!itemExists) {
+                    sections[result.type].items.push({ id: doc.id, ...doc.data() });
+                }
             });
         });
 
@@ -921,7 +917,7 @@ const renderApprovals = async () => {
                 section.items.forEach(item => {
                     let summary = '';
                     if (key === 'requests') summary = `${item.type} for ${item.hours} hours`;
-                    if (key === 'claims') summary = `${item.claimType} for $${item.amount.toFixed(2)}`;
+                    if (key === 'claims') summary = `${item.claimType} for RM${item.amount.toFixed(2)}`;
                     if (key === 'purchaseRequests') summary = `${item.itemDescription}`;
                     
                     finalHtml += `
@@ -950,6 +946,7 @@ const renderApprovals = async () => {
         contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading approvals. A Firestore index may be required.</div>`;
     }
 };
+
 
 const renderSupport = async () => {
     pageTitle.textContent = 'Support Requests';
