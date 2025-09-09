@@ -42,22 +42,24 @@
 
             <!-- Main Content -->
             <div class="flex-1 flex flex-col overflow-hidden">
-                <!-- Header -->
-<header class="bg-white shadow p-4 flex justify-between items-center z-30 relative">
-    <button id="hamburger-button" class="md:hidden text-gray-700 hover:text-gray-900 focus:outline-none">
-        <i class="fas fa-bars fa-lg"></i>
-    </button>
-
-    <div>
-        <h1 id="page-title" class="text-2xl font-semibold text-gray-800">Dashboard</h1>
-    </div>
-    <div id="user-menu" class="flex items-center">
-        <span id="user-name" class="mr-4 text-gray-700"></span>
-        <button id="signout-button" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
-            Sign Out
-        </button>
-    </div>
-</header>
+<!-- Header -->
+                <header class="bg-white shadow p-4 flex justify-between items-center z-30 relative">
+                    <!-- Left Section: Hamburger and Title -->
+                    <div class="flex items-center space-x-4">
+                        <button id="hamburger-button" class="md:hidden text-gray-700 hover:text-gray-900 focus:outline-none">
+                            <i class="fas fa-bars fa-lg"></i>
+                        </button>
+                        <h1 id="page-title" class="text-xl md:text-2xl font-semibold text-gray-800">Dashboard</h1>
+                    </div>
+                    <!-- Right Section: User Menu -->
+                    <div id="user-menu" class="flex items-center">
+                        <!-- Hide user name on small screens (less than 768px), show on medium and up -->
+                        <span id="user-name" class="hidden md:inline mr-4 text-gray-700"></span>
+                        <button id="signout-button" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                            Sign Out
+                        </button>
+                    </div>
+                </header>
                 <!-- Content Area -->
                 <main id="content-area" class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
                     <!-- Page content will be loaded here -->
@@ -65,7 +67,6 @@
             </div>
         </div>
     </div>
-
 <!-- ======================================================================= -->
 <!-- START: NEW ANNOUNCEMENT MODAL -->
 <!-- ======================================================================= -->
