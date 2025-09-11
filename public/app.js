@@ -3249,15 +3249,6 @@ const openRequestModal = () => {
         option.dataset.hasQuota = type.hasQuota;
         requestTypeSelect.appendChild(option);
     });
-    const deptSelect = document.getElementById('request-department');
-    deptSelect.innerHTML = '';
-    appConfig.availableDepartments.forEach(dept => {
-        const option = document.createElement('option');
-        option.value = dept;
-        option.textContent = dept;
-        deptSelect.appendChild(option);
-    });
-    deptSelect.disabled = true;
     document.getElementById('leave-balance-display').textContent = '';
     requestModal.classList.remove('hidden');
 };
@@ -3276,7 +3267,7 @@ const handleRequestSubmit = async (e) => {
     const endDate = document.getElementById('request-end-date').value;
     const hours = document.getElementById('request-hours').value;
     const reason = document.getElementById('request-reason').value.trim();
-    const department = document.getElementById('request-department').value;
+    
     const documentFile = document.getElementById('request-document').files[0];
 
     if (!type || !startDate || !endDate || !reason || !hours) {
@@ -3314,7 +3305,7 @@ const handleRequestSubmit = async (e) => {
         userId: currentUser.email, userName: userData.name, type: type,
         startDate: startDate, endDate: endDate, hours: parseInt(hours, 10),
         reason: reason, status: 'Pending', createdAt: serverTimestamp(),
-        department: type.toLowerCase().includes('overtime') ? department : userData.primaryDepartment,
+        department: userData.primaryDepartment,
         documentUrl: null
     };
 
@@ -3966,7 +3957,7 @@ viewAcknowledgementsModalCancelButton.addEventListener('click', closeViewAcknowl
 document.getElementById('request-type').addEventListener('change', (e) => {
     const selectedOption = e.target.options[e.target.selectedIndex];
     const leaveBalanceDisplay = document.getElementById('leave-balance-display');
-    document.getElementById('request-department').disabled = !e.target.value.toLowerCase().includes('overtime');
+    
     
     if (selectedOption.dataset.hasQuota === 'true') {
         const quotaKey = `edit-${selectedOption.value.toLowerCase().replace(/ /g, '-')}`;
