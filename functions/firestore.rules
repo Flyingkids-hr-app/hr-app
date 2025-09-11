@@ -106,7 +106,7 @@ service cloud.firestore {
       allow create: if true; // Created by backend function
       allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc());
       allow list: if isSignedIn();
-      allow update: if hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc();
+      allow update: if (hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc()) || (isOwnerOfDoc() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']));
     }
     
     match /announcements/{announcementId} {
