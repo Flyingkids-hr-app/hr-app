@@ -205,24 +205,55 @@
     </div>
 
     <!-- Leave/OT Request Modal -->
-<div id="request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
-    <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
-        <div class="flex justify-between items-center border-b pb-3"><h3 class="text-2xl font-bold text-gray-900">New Leave / OT Request</h3><button id="request-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button></div>
-        <div class="mt-5"><form id="request-form"><div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div><label for="request-type" class="block text-sm font-medium text-gray-700">Request Type</label><select id="request-type" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select><p id="leave-balance-display" class="text-xs text-gray-500 mt-1"></p></div>
-            <div><label for="request-department" class="block text-sm font-medium text-gray-700">Department (for OT)</label><select id="request-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" disabled></select></div>
-            
-            <div><label for="request-start-date" class="block text-sm font-medium text-gray-700">Start Date & Time</label><input type="datetime-local" id="request-start-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></div>
-            <div><label for="request-end-date" class="block text-sm font-medium text-gray-700">End Date & Time</label><input type="datetime-local" id="request-end-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></div>
-            
-            <div class="md:col-span-2"><label for="request-hours" class="block text-sm font-medium text-gray-700">Total Hours</label><input type="number" id="request-hours" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="e.g., 8"></div>
-            <div class="md:col-span-2">
-                <label for="request-document" class="block text-sm font-medium text-gray-700">Upload Document (Optional)</label>
-                <input type="file" id="request-document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                <p id="request-upload-progress" class="text-sm text-gray-500 mt-1"></p>
+<div id="request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 h-full w-full flex items-center justify-center p-4 z-50">
+    <div class="relative w-full max-w-2xl shadow-lg rounded-md bg-white flex flex-col max-h-[90vh]">
+        
+        <div class="flex-shrink-0 flex justify-between items-center border-b p-5">
+            <h3 class="text-2xl font-bold text-gray-900">New Leave / OT Request</h3>
+            <button id="request-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+        </div>
+        
+        <form id="request-form" class="flex-grow flex flex-col min-h-0">
+            <div class="flex-grow overflow-y-auto p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="request-type" class="block text-sm font-medium text-gray-700">Request Type</label>
+                        <select id="request-type" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select>
+                        <p id="leave-balance-display" class="text-xs text-gray-500 mt-1"></p>
+                    </div>
+                    <div>
+                        <label for="request-department" class="block text-sm font-medium text-gray-700">Department (for OT)</label>
+                        <select id="request-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" disabled></select>
+                    </div>
+                    <div>
+                        <label for="request-start-date" class="block text-sm font-medium text-gray-700">Start Date & Time</label>
+                        <input type="datetime-local" id="request-start-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="request-end-date" class="block text-sm font-medium text-gray-700">End Date & Time</label>
+                        <input type="datetime-local" id="request-end-date" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="request-hours" class="block text-sm font-medium text-gray-700">Total Hours</label>
+                        <input type="number" id="request-hours" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="e.g., 8">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="request-document" class="block text-sm font-medium text-gray-700">Upload Document (Optional)</label>
+                        <input type="file" id="request-document" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                        <p id="request-upload-progress" class="text-sm text-gray-500 mt-1"></p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="request-reason" class="block text-sm font-medium text-gray-700">Reason</label>
+                        <textarea id="request-reason" rows="3" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea>
+                    </div>
+                </div>
             </div>
-            <div class="md:col-span-2"><label for="request-reason" class="block text-sm font-medium text-gray-700">Reason</label><textarea id="request-reason" rows="3" required class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></textarea></div>
-        </div><div class="mt-6 flex justify-end space-x-3 border-t pt-4"><button id="request-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button><button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Submit Request</button></div></form></div>
+
+            <div class="flex-shrink-0 flex justify-end space-x-3 border-t p-5">
+                <button id="request-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Submit Request</button>
+            </div>
+        </form>
     </div>
 </div>
     <!-- Support Request Modal -->
@@ -368,7 +399,7 @@
     </div>
 
     <!-- View Request Details Modal -->
-    <div id="view-request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-70 overflow-y-auto h-full w-full flex items-center justify-center">
+    <div id="view-request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-70 overflow-y-auto h-full w-full flex items-center justify-center z-50">
         <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
             <div class="flex justify-between items-center border-b pb-3">
                 <h3 id="view-request-modal-title" class="text-2xl font-bold text-gray-900">Request Details</h3>
