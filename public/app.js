@@ -1645,43 +1645,60 @@ const renderLiveStatusReport = () => {
 // (find the renderPayrollReport function in this section and replace it)
 // =================================================================================
 
+// Replace the entire existing renderPayrollReport function with this one
 const renderPayrollReport = async () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
-    let payrollReportData = []; // To store data for export
+    let payrollReportData = [];
 
     dataContainer.innerHTML = `<p class="text-center p-4">Please select filters and generate a report.</p>`;
 
     try {
-        // Fetch all active users and departments in parallel
-        const usersSnapshot = await getDocs(query(collection(db, 'users'), where('status', '==', 'active'), orderBy('name')));
-        const allActiveUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const allDepartments = appConfig.availableDepartments || [];
+        // --- NEW ROLE-AWARE LOGIC START ---
+        const isDirector = userData.roles.includes('Director');
+        
+        // 1. Determine which departments the user is allowed to see.
+        const departmentsToDisplay = isDirector 
+            ? appConfig.availableDepartments 
+            : (userData.managedDepartments || []);
 
-        // --- UI WITH CORRECTION FOR BUTTON LAYOUT ---
+        if (departmentsToDisplay.length === 0) {
+            filtersContainer.innerHTML = `<p class="text-center p-4 text-gray-600">You are not assigned to any departments to generate a report for.</p>`;
+            dataContainer.innerHTML = '';
+            return;
+        }
+
+        // 2. Fetch ONLY the active users from the allowed departments. This is more efficient and secure.
+        const usersQuery = query(
+            collection(db, 'users'), 
+            where('status', '==', 'active'), 
+            where('primaryDepartment', 'in', departmentsToDisplay),
+            orderBy('name')
+        );
+        const usersSnapshot = await getDocs(usersQuery);
+        const visibleUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // --- NEW ROLE-AWARE LOGIC END ---
+
+
+        // --- UI Rendering (mostly unchanged, but now uses our filtered data) ---
         filtersContainer.innerHTML = `
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6 p-4 border rounded-lg bg-gray-50">
-                <!-- Department List -->
                 <div class="md:col-span-1">
                     <label class="block text-sm font-medium text-gray-700 mb-2">1. Select Departments</label>
                     <div id="payroll-departments-list" class="bg-white p-2 border border-gray-300 rounded-md h-48 overflow-y-auto space-y-2">
-                        <!-- Checkboxes will be rendered here -->
-                    </div>
+                        </div>
                 </div>
-                <!-- Employee List -->
                 <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-2">2. Select Employees</label>
                     <div id="payroll-employees-list" class="bg-gray-100 p-2 border border-gray-300 rounded-md h-48 overflow-y-auto space-y-2">
                         <p class="text-gray-500 text-sm p-2">Select one or more departments to populate this list.</p>
                     </div>
                 </div>
-                <!-- Month Selector and Buttons -->
                 <div class="md:col-span-1 space-y-4">
                     <div>
                         <label for="payroll-month" class="block text-sm font-medium text-gray-700">3. Select Month</label>
                         <input type="month" id="payroll-month" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm">
                     </div>
-                    <!-- THIS IS THE SHARED CONTAINER FOR BUTTONS -->
                     <div id="payroll-actions-container" class="flex flex-col space-y-2 pt-5">
                          <button id="generate-payroll-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 shadow">
                              <i class="fas fa-cogs mr-2"></i>Generate Report
@@ -1693,12 +1710,9 @@ const renderPayrollReport = async () => {
 
         const deptListContainer = document.getElementById('payroll-departments-list');
         const empListContainer = document.getElementById('payroll-employees-list');
-        const actionsContainer = document.getElementById('payroll-actions-container');  
-        
+        const actionsContainer = document.getElementById('payroll-actions-container');
 
-        // --- LOGIC TO RENDER AND MANAGE CHECKBOXES ---
-
-        // Function to render the department list
+        // Function to render the (now filtered) department list
         const renderDepartments = () => {
             let deptHtml = `
                 <div class="border-b pb-2 mb-2">
@@ -1707,7 +1721,8 @@ const renderPayrollReport = async () => {
                         <span class="font-semibold text-gray-700">Select All</span>
                     </label>
                 </div>`;
-            allDepartments.forEach(dept => {
+            // THIS IS THE KEY CHANGE: Use the role-aware 'departmentsToDisplay' list
+            departmentsToDisplay.forEach(dept => {
                 deptHtml += `
                     <label class="flex items-center space-x-2 px-1 rounded hover:bg-gray-100">
                         <input type="checkbox" class="form-checkbox h-4 w-4 text-indigo-600 dept-checkbox" value="${dept}">
@@ -1717,7 +1732,7 @@ const renderPayrollReport = async () => {
             deptListContainer.innerHTML = deptHtml;
         };
 
-        // Function to update the employee list based on selected departments
+        // Function to update the employee list (now uses our pre-filtered user list)
         const updateEmployeeList = () => {
             const selectedDepts = Array.from(deptListContainer.querySelectorAll('.dept-checkbox:checked')).map(cb => cb.value);
             
@@ -1728,7 +1743,8 @@ const renderPayrollReport = async () => {
             }
 
             empListContainer.classList.remove('bg-gray-100');
-            const filteredUsers = allActiveUsers.filter(user => selectedDepts.includes(user.primaryDepartment));
+            // THIS IS THE KEY CHANGE: Use the role-aware 'visibleUsers' list
+            const filteredUsers = visibleUsers.filter(user => selectedDepts.includes(user.primaryDepartment));
 
             let empHtml = `
                 <div class="border-b pb-2 mb-2">
@@ -1752,10 +1768,8 @@ const renderPayrollReport = async () => {
             empListContainer.innerHTML = empHtml;
         };
         
-        // Initial render of the department list
+        // Initial render and event listeners (unchanged)
         renderDepartments();
-
-       // --- EVENT LISTENERS ---
         deptListContainer.addEventListener('change', (e) => {
             if (e.target.matches('#dept-select-all')) {
                 const isChecked = e.target.checked;
@@ -1763,7 +1777,6 @@ const renderPayrollReport = async () => {
             }
             updateEmployeeList();
         });
-
         empListContainer.addEventListener('change', (e) => {
             if (e.target.matches('#emp-select-all')) {
                 const isChecked = e.target.checked;
@@ -1771,7 +1784,6 @@ const renderPayrollReport = async () => {
             }
         });
         
-        // Generate Report Button Logic
         document.getElementById('generate-payroll-btn').addEventListener('click', async () => {
             const generateBtn = document.getElementById('generate-payroll-btn');
             const selectedUsers = Array.from(empListContainer.querySelectorAll('.emp-checkbox:checked')).map(cb => cb.value);
@@ -1782,18 +1794,14 @@ const renderPayrollReport = async () => {
                 return;
             }
             
-            // --- FIX START ---
-            // 1. Disable the button and show loading state FIRST
             generateBtn.disabled = true;
             generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...';
             
-            // 2. Clear previous report data and remove ONLY the old export button if it exists
             dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Generating payroll data...</p>`;
             const oldExportBtn = document.getElementById('export-payroll-csv-btn');
             if (oldExportBtn) {
                 oldExportBtn.remove();
             }
-            // --- FIX END ---
 
             const [year, month] = monthValue.split('-');
             const payload = { userIds: selectedUsers, year: parseInt(year), month: parseInt(month) };
@@ -1826,7 +1834,6 @@ const renderPayrollReport = async () => {
                     </div>`;
                 dataContainer.innerHTML = tableHTML;
 
-                // --- FIX: Create and APPEND the new export button ---
                 const exportButton = document.createElement('button');
                 exportButton.id = 'export-payroll-csv-btn';
                 exportButton.className = 'w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 shadow-sm';
@@ -1841,7 +1848,6 @@ const renderPayrollReport = async () => {
                 console.error("Error calling generatePayrollReport:", error);
                 dataContainer.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded-lg"><strong>Error:</strong> ${error.message}</div>`;
             } finally {
-                // The generateBtn reference is always valid now
                 generateBtn.disabled = false;
                 generateBtn.innerHTML = '<i class="fas fa-cogs mr-2"></i>Generate Report';
             }
@@ -1852,7 +1858,6 @@ const renderPayrollReport = async () => {
         filtersContainer.innerHTML = `<p class="text-red-600">Could not load data for filters.</p>`;
     }
 };
-
 
 
 

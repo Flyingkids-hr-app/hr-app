@@ -371,15 +371,21 @@ exports.correctAttendanceRecord = onCall({
 // HTTPS CALLABLE FUNCTION: generatePayrollReport (NEW)
 // =================================================================================
 // Replace the entire generatePayrollReport function with this new version
+// Replace the entire existing generatePayrollReport function with this one
 exports.generatePayrollReport = onCall({
     timeoutSeconds: 60,
 }, async (request) => {
-    // 1. --- AUTHENTICATION & PERMISSION CHECK ---
+    // 1. --- AUTHENTICATION & ROLE CHECK ---
     if (!request.auth) {
         throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
+    const requesterEmail = request.auth.token.email;
     const requesterRoles = request.auth.token.roles || [];
-    if (!requesterRoles.includes('Director') && !requesterRoles.includes('HR')) {
+
+    const isDirector = requesterRoles.includes('Director');
+    const isHrOrHrHead = requesterRoles.includes('HR') || requesterRoles.includes('HR Head');
+
+    if (!isDirector && !isHrOrHrHead) {
         throw new HttpsError('permission-denied', 'You do not have permission to generate this report.');
     }
 
@@ -388,16 +394,41 @@ exports.generatePayrollReport = onCall({
     if (!year || !month || !userIds || !Array.isArray(userIds) || userIds.length === 0) {
         throw new HttpsError('invalid-argument', 'The function must be called with a year, month, and a list of user IDs.');
     }
-    if (userIds.length > 50) { // Increased limit slightly
+    if (userIds.length > 50) {
         throw new HttpsError('invalid-argument', 'Cannot process more than 50 users at a time.');
     }
 
-    // 3. --- BLOCKER: CHECK FOR PENDING EXCEPTIONS ---
+    // 3. --- NEW SERVER-SIDE PERMISSION VALIDATION ---
+    if (!isDirector) { // This block runs only for HR and HR Head
+        console.log(`Validating request for HR user: ${requesterEmail}`);
+        const requesterDoc = await db.collection('users').doc(requesterEmail).get();
+        if (!requesterDoc.exists) {
+            throw new HttpsError('not-found', 'Your user profile could not be found to verify permissions.');
+        }
+        const managedDepartments = requesterDoc.data().managedDepartments || [];
+        if (managedDepartments.length === 0) {
+            throw new HttpsError('permission-denied', 'You are not assigned to manage any departments.');
+        }
+
+        // Now, check that every user in the report request is in a department managed by the HR user.
+        const usersToReportOnSnap = await db.collection('users').where(admin.firestore.FieldPath.documentId(), 'in', userIds).get();
+
+        for (const userDoc of usersToReportOnSnap.docs) {
+            const userData = userDoc.data();
+            if (!managedDepartments.includes(userData.primaryDepartment)) {
+                // If we find even one user who is not in a managed department, block the entire request.
+                throw new HttpsError('permission-denied', `Access denied. You do not have permission to generate a report for ${userData.name}, who is in the ${userData.primaryDepartment} department.`);
+            }
+        }
+        console.log(`Validation passed for HR user: ${requesterEmail}`);
+    }
+
+    // 4. --- BLOCKER: CHECK FOR PENDING EXCEPTIONS (Unchanged) ---
     const startDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').startOf('month').format('YYYY-MM-DD');
     const endDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').endOf('month').format('YYYY-MM-DD');
-    
+
     const exceptionsQuery = await db.collection('attendanceExceptions')
-        .where('status', 'in', ['Pending', 'Corrected']) // Block if pending OR corrected but not yet resolved
+        .where('status', 'in', ['Pending', 'Corrected'])
         .where('userId', 'in', userIds)
         .where('date', '>=', startDateStr)
         .where('date', '<=', endDateStr)
@@ -409,7 +440,7 @@ exports.generatePayrollReport = onCall({
         throw new HttpsError('failed-precondition', `Cannot generate report. At least one unresolved attendance exception exists for ${pendingException.userName} on ${pendingException.date}. Please resolve all exceptions in the 'Attendance Exceptions' report first.`);
     }
 
-    // 4. --- DATA FETCHING ---
+    // 5. --- DATA FETCHING & AGGREGATION (Unchanged) ---
     try {
         const endOfMonthQueryString = endDateStr + 'T23:59:59';
         const [configSnap, usersSnap, requestsSnap, claimsSnap, attendanceSnap] = await Promise.all([
@@ -427,8 +458,6 @@ exports.generatePayrollReport = onCall({
         const allAttendance = attendanceSnap.docs.map(doc => doc.data());
 
         const payrollData = [];
-
-        // --- Identify all unique allowance types used this period ---
         const claimTypesConfig = appConfig.claimTypes || [];
         const usedAllowanceTypes = new Set();
         allClaims.forEach(claim => {
@@ -439,8 +468,6 @@ exports.generatePayrollReport = onCall({
         });
         const sortedAllowanceTypes = Array.from(usedAllowanceTypes).sort();
 
-
-        // 5. --- DATA AGGREGATION ---
         for (const user of usersData) {
             let totalWorkdays = 0;
             let totalAttendDays = 0;
@@ -450,13 +477,11 @@ exports.generatePayrollReport = onCall({
             let totalAllowances = 0;
             let totalReimbursements = 0;
             
-            // Create an object to hold the breakdown for each allowance type
             const allowanceDetails = {};
             sortedAllowanceTypes.forEach(typeName => {
                 allowanceDetails[`${typeName} (RM)`] = 0;
             });
 
-            // A. Calculate Total Workdays based on schedule
             const monthStart = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur');
             const daysInMonth = monthStart.daysInMonth();
             for (let day = 1; day <= daysInMonth; day++) {
@@ -467,38 +492,32 @@ exports.generatePayrollReport = onCall({
                 }
             }
             
-            // B. Calculate Total Attendance Days
             const userAttendance = allAttendance.filter(att => att.userId === user.email);
             totalAttendDays = userAttendance.length;
 
-            // C. Aggregate Leave and OT Requests
             const userRequests = allRequests.filter(req => req.userId === user.email);
             for (const req of userRequests) {
                 const reqTypeConfig = (appConfig.requestTypes || []).find(rt => rt.name === req.type);
                 if (!reqTypeConfig) continue;
-
                 if (req.type.toLowerCase().includes('overtime')) {
-                    ownDeptOtHours += req.hours; // All OT is now considered Own Dept OT
+                    ownDeptOtHours += req.hours;
                 } else {
                     if (reqTypeConfig.isPaidLeave) { paidLeaveHours += req.hours; } 
                     else { unpaidLeaveHours += req.hours; }
                 }
             }
             
-            // D. Aggregate Claims and populate the allowance breakdown
             const userClaims = allClaims.filter(claim => claim.userId === user.email);
             for (const claim of userClaims) {
                 const claimTypeInfo = claimTypesConfig.find(ct => ct.name === claim.claimType);
                 if (claimTypeInfo && claimTypeInfo.category === 'Allowance') {
                     totalAllowances += claim.amount;
-                    // Add the amount to the specific allowance column
                     allowanceDetails[`${claim.claimType} (RM)`] += claim.amount;
-                } else { // This includes Reimbursements and any legacy types
+                } else {
                     totalReimbursements += claim.amount;
                 }
             }
 
-            // E. Assemble the final object for this user
             payrollData.push({
                 Name: user.name,
                 Department: user.primaryDepartment,
@@ -507,13 +526,12 @@ exports.generatePayrollReport = onCall({
                 'Paid_Leave_Hours': paidLeaveHours,
                 'Unpaid_Leave_Hours': unpaidLeaveHours,
                 'Own_Dept_OT_Hours': ownDeptOtHours,
-                ...allowanceDetails, // Add the dynamic allowance columns
+                ...allowanceDetails,
                 'Total_Allowances_RM': parseFloat(totalAllowances.toFixed(2)),
                 'Total_Reimbursements_RM': parseFloat(totalReimbursements.toFixed(2))
             });
         }
 
-        // 6. --- RETURN DATA ---
         return payrollData;
     } catch (error) {
         console.error("Error generating payroll report:", error);
