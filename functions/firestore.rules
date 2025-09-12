@@ -49,7 +49,8 @@ service cloud.firestore {
       match /documents/{docId} {
         allow read: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']) || (request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true);
 
-        allow write: if hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']);
+        allow write: if hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']) || (request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true);
+
       }
       match /notifications/{docId} {
         allow read, write: if isSignedIn() && request.auth.token.email == userEmail;
@@ -132,13 +133,22 @@ service cloud.firestore {
     
     match /companyCalendar/{date} {
       allow read: if isSignedIn();
-      allow write: if (
-        hasAnyRole(['Director', 'Admin'])
-      ) || (
-        hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
-        !request.resource.data.appliesTo.hasAny(['__ALL__']) &&
-        request.resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
-      );
+      // Rule for creating and updating is unchanged, but now explicit
+allow create, update: if (
+  hasAnyRole(['Director', 'Admin'])
+) || (
+  hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
+  !request.resource.data.appliesTo.hasAny(['__ALL__']) &&
+  request.resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
+);
+
+// NEW rule specifically for deleting
+allow delete: if
+  hasAnyRole(['Director', 'Admin']) ||
+  (
+    hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
+    resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
+  );
     }
   }
 }
