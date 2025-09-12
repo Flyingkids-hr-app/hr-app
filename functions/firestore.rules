@@ -43,10 +43,12 @@ service cloud.firestore {
     match /users/{userEmail} {
       allow read: if isSignedIn();
       allow update: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director']);
-      allow create, delete: if hasAnyRole(['Director', 'HR', 'HR Head']);
+      allow create, delete: if hasAnyRole(['Director', 'HR', 'HR Head', 'RegionalDirector']);
+
       
       match /documents/{docId} {
-        allow read: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']);
+        allow read: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']) || (request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true);
+
         allow write: if hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']);
       }
       match /notifications/{docId} {
@@ -133,7 +135,7 @@ service cloud.firestore {
       allow write: if (
         hasAnyRole(['Director', 'Admin'])
       ) || (
-        hasAnyRole(['HR', 'HR Head']) &&
+        hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
         !request.resource.data.appliesTo.hasAny(['__ALL__']) &&
         request.resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
       );

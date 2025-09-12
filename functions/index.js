@@ -145,9 +145,10 @@ exports.updateUserByManager = onCall({
     const managerRoles = request.auth.token.roles || [];
 
     const isHr = managerRoles.includes('HR');
-    const isHrHead = managerRoles.includes('HR Head') || managerRoles.includes('HRHead');
+const isHrHead = managerRoles.includes('HR Head') || managerRoles.includes('HRHead');
+const isRegionalDirector = managerRoles.includes('RegionalDirector');
 
-    if (!isHr && !isHrHead) {
+if (!isHr && !isHrHead && !isRegionalDirector) {
         throw new HttpsError('permission-denied', 'You do not have permission to update user profiles.');
     }
 
@@ -176,7 +177,7 @@ exports.updateUserByManager = onCall({
         }
 
         // 5. Apply logic based on the specific role
-        if (isHrHead) {
+        if (isHrHead || isRegionalDirector) {
             // SECURITY CHECK 2 (HR Head): Prevent assigning 'Director' role
             if (updates.roles && updates.roles.includes('Director')) {
                 throw new HttpsError('permission-denied', 'You are not authorized to assign the Director role.');
