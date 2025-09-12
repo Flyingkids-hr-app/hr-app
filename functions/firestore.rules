@@ -42,7 +42,7 @@ service cloud.firestore {
 
     match /users/{userEmail} {
       allow read: if isSignedIn();
-      allow update: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director', 'HR', 'HR Head']);
+      allow update: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director']);
       allow create, delete: if hasAnyRole(['Director', 'HR', 'HR Head']);
       
       match /documents/{docId} {

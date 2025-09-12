@@ -130,6 +130,86 @@ exports.getSupportAssignableUsers = onCall(async (request) => {
     }
 });
 
+
+// =================================================================================
+// HTTPS CALLABLE FUNCTION: updateUserByManager (NEW)
+// =================================================================================
+exports.updateUserByManager = onCall({
+    timeoutSeconds: 60,
+}, async (request) => {
+    // 1. Authentication and basic role check
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const managerEmail = request.auth.token.email;
+    const managerRoles = request.auth.token.roles || [];
+
+    const isHr = managerRoles.includes('HR');
+    const isHrHead = managerRoles.includes('HR Head') || managerRoles.includes('HRHead');
+
+    if (!isHr && !isHrHead) {
+        throw new HttpsError('permission-denied', 'You do not have permission to update user profiles.');
+    }
+
+    // 2. Input validation
+    const { targetUserEmail, updates } = request.data;
+    if (!targetUserEmail || !updates || Object.keys(updates).length === 0) {
+        throw new HttpsError('invalid-argument', 'Missing target user email or update data.');
+    }
+
+    try {
+        // 3. Get manager's and target user's data
+        const managerDocRef = db.collection('users').doc(managerEmail);
+        const targetUserDocRef = db.collection('users').doc(targetUserEmail);
+        const [managerDoc, targetUserDoc] = await Promise.all([managerDocRef.get(), targetUserDocRef.get()]);
+
+        if (!managerDoc.exists) { throw new HttpsError('not-found', 'Your user profile could not be found.'); }
+        if (!targetUserDoc.exists) { throw new HttpsError('not-found', 'The target user profile could not be found.'); }
+
+        const managerData = managerDoc.data();
+        const targetUserData = targetUserDoc.data();
+        const managedDepartments = managerData.managedDepartments || [];
+
+        // 4. SECURITY CHECK 1: Is the target user within the manager's scope?
+        if (!managedDepartments.includes(targetUserData.primaryDepartment)) {
+            throw new HttpsError('permission-denied', `You can only manage users within your assigned departments. ${targetUserData.name} is in ${targetUserData.primaryDepartment}.`);
+        }
+
+        // 5. Apply logic based on the specific role
+        if (isHrHead) {
+            // SECURITY CHECK 2 (HR Head): Prevent assigning 'Director' role
+            if (updates.roles && updates.roles.includes('Director')) {
+                throw new HttpsError('permission-denied', 'You are not authorized to assign the Director role.');
+            }
+            // SECURITY CHECK 3 (HR Head): Prevent assigning users to departments they don't manage
+            if (updates.primaryDepartment && !managedDepartments.includes(updates.primaryDepartment)) {
+                throw new HttpsError('permission-denied', `You cannot assign a user to the ${updates.primaryDepartment} department as you do not manage it.`);
+            }
+        } else if (isHr) {
+            // SECURITY CHECK 4 (HR): Prevent changing critical fields
+            const forbiddenKeys = ['roles', 'primaryDepartment', 'managedDepartments'];
+            for (const key of forbiddenKeys) {
+                if (key in updates) {
+                    // Use a slightly different error message to distinguish the failure reason
+                    throw new HttpsError('permission-denied', `Your role does not permit changing a user's ${key}.`);
+                }
+            }
+        }
+
+        // 6. If all security checks pass, perform the update
+        await targetUserDocRef.update(updates);
+        console.log(`User ${targetUserEmail} was successfully updated by ${managerEmail}.`);
+        return { success: true, message: `User ${targetUserData.name} was updated successfully.` };
+
+    } catch (error) {
+        console.error("Error in updateUserByManager:", error);
+        // Re-throw HttpsError to the client, otherwise wrap other errors
+        if (error instanceof HttpsError) { throw error; }
+        throw new HttpsError('internal', 'An unexpected error occurred while updating the user.');
+    }
+});
+
+
 // Add this entire new function to functions/index.js
 // =================================================================================
 // =================================================================================

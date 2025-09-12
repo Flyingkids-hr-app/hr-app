@@ -111,7 +111,7 @@ const navItems = [
     { id: 'support', label: 'Support Requests', icon: 'fa-solid fa-headset', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
     { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
     { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance'] },
-    { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR'] },
+    { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR', 'HR Head'] },
     { id: 'system-health', label: 'System Health', icon: 'fa-solid fa-heart-pulse', requiredRoles: ['Director'] },
     { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director'] },
 ];
@@ -749,18 +749,141 @@ const renderLeaveOT = async () => {
 const renderUserManagement = async () => {
     pageTitle.textContent = 'User Management';
     contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow">Loading users...</div>`;
+
     try {
-        const userSnapshot = await getDocs(collection(db, 'users'));
-        allUsers = userSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        let tableHtml = `<div class="bg-white p-6 rounded-lg shadow"><div class="flex justify-end mb-4"><button id="open-create-user-modal-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"><i class="fas fa-plus mr-2"></i>Create User</button></div><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Roles</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th scope="col" class="relative px-6 py-3"><span class="sr-only">Edit</span></th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
-        allUsers.forEach(user => {
-            tableHtml += `<tr><td class="px-6 py-4 whitespace-nowrap"><div class="flex items-center"><div class="flex-shrink-0 h-10 w-10"><img class="h-10 w-10 rounded-full" src="${user.photoURL || 'https://placehold.co/40x40/E2E8F0/333333?text=?'}" alt=""></div><div class="ml-4"><div class="text-sm font-medium text-gray-900">${user.name}</div></div></div></td><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-gray-900">${user.email}</div></td><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-gray-900">${user.primaryDepartment}</div></td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${user.roles.join(', ')}</td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${user.status}</span></td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><button class="text-indigo-600 hover:text-indigo-900 edit-user-button" data-user-id="${user.id}">Edit</button></td></tr>`;
+        // --- NEW: Role-based data fetching ---
+        const isDirector = userData.roles.includes('Director');
+        const isHrOrHrHead = userData.roles.includes('HR') || userData.roles.includes('HR Head');
+        
+        const departmentsToView = isDirector 
+            ? appConfig.availableDepartments 
+            : (userData.managedDepartments || []);
+
+        if (departmentsToView.length === 0 && !isDirector) {
+            contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow text-center">You are not assigned to manage any departments.</div>`;
+            return;
+        }
+        
+        const usersQuery = query(
+            collection(db, 'users'), 
+            where('primaryDepartment', 'in', departmentsToView),
+            orderBy('name')
+        );
+        const userSnapshot = await getDocs(usersQuery);
+        const visibleUsers = userSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // --- NEW: UI for filters and actions ---
+        const departmentOptions = departmentsToView.map(dept => `<option value="${dept}">${dept}</option>`).join('');
+
+        const createUserButtonHTML = (isDirector || isHrOrHrHead) 
+            ? `<button id="open-create-user-modal-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded whitespace-nowrap"><i class="fas fa-plus mr-2"></i>Create User</button>`
+            : '';
+
+        let pageHTML = `
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <div class="md:col-span-2">
+                        <label for="user-search-input" class="block text-sm font-medium text-gray-700">Search by Name/Email</label>
+                        <input type="text" id="user-search-input" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md" placeholder="Start typing to search...">
+                    </div>
+                    <div>
+                        <label for="user-dept-filter" class="block text-sm font-medium text-gray-700">Filter by Department</label>
+                        <select id="user-dept-filter" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                            <option value="">All My Departments</option>
+                            ${departmentOptions}
+                        </select>
+                    </div>
+                    <div class="flex items-end space-x-2">
+                        <button id="export-users-csv-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded whitespace-nowrap"><i class="fas fa-file-csv mr-2"></i>Export CSV</button>
+                        ${createUserButtonHTML}
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Roles</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th scope="col" class="relative px-6 py-3"><span class="sr-only">Edit</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="user-table-body" class="bg-white divide-y divide-gray-200">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        contentArea.innerHTML = pageHTML;
+
+        const userTableBody = document.getElementById('user-table-body');
+        let currentlyDisplayedUsers = [];
+
+        const renderTableRows = (usersToRender) => {
+            currentlyDisplayedUsers = usersToRender; // Keep track for CSV export
+            if (usersToRender.length === 0) {
+                userTableBody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-500 py-4">No users found.</td></tr>`;
+                return;
+            }
+            userTableBody.innerHTML = usersToRender.map(user => `
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 h-10 w-10"><img class="h-10 w-10 rounded-full" src="${user.photoURL || 'https://placehold.co/40x40/E2E8F0/333333?text=?'}" alt=""></div>
+                            <div class="ml-4"><div class="text-sm font-medium text-gray-900">${user.name}</div><div class="text-sm text-gray-500">${user.email}</div></div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${user.primaryDepartment}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${user.roles.join(', ')}</td>
+                    <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${user.status}</span></td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><button class="text-indigo-600 hover:text-indigo-900 edit-user-button" data-user-id="${user.id}">Edit</button></td>
+                </tr>
+            `).join('');
+            document.querySelectorAll('.edit-user-button').forEach(button => button.addEventListener('click', (e) => openEditModal(e.currentTarget.dataset.userId)));
+        };
+
+        const applyFilters = () => {
+            const searchTerm = document.getElementById('user-search-input').value.toLowerCase();
+            const selectedDept = document.getElementById('user-dept-filter').value;
+            
+            let filteredUsers = visibleUsers;
+
+            if (searchTerm) {
+                filteredUsers = filteredUsers.filter(user => 
+                    user.name.toLowerCase().includes(searchTerm) || 
+                    user.email.toLowerCase().includes(searchTerm)
+                );
+            }
+
+            if (selectedDept) {
+                filteredUsers = filteredUsers.filter(user => user.primaryDepartment === selectedDept);
+            }
+            
+            renderTableRows(filteredUsers);
+        };
+
+        // Initial render
+        renderTableRows(visibleUsers);
+
+        // Add event listeners for new controls
+        if (document.getElementById('open-create-user-modal-button')) {
+             document.getElementById('open-create-user-modal-button').addEventListener('click', openCreateModal);
+        }
+        document.getElementById('user-search-input').addEventListener('input', applyFilters);
+        document.getElementById('user-dept-filter').addEventListener('change', applyFilters);
+        document.getElementById('export-users-csv-btn').addEventListener('click', () => {
+             const dataToExport = currentlyDisplayedUsers.map(({ photoURL, ...rest }) => rest); // Exclude photoURL
+             exportToCSV(dataToExport, 'user_management_export');
         });
-        tableHtml += `</tbody></table></div></div>`;
-        contentArea.innerHTML = tableHtml;
-        document.getElementById('open-create-user-modal-button').addEventListener('click', openCreateModal);
-        document.querySelectorAll('.edit-user-button').forEach(button => button.addEventListener('click', (e) => openEditModal(e.currentTarget.dataset.userId)));
-    } catch (e) { console.error("Error fetching users:", e); contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading users.</div>`; }
+        
+        allUsers = visibleUsers; // Update global allUsers to be the scoped list for the edit modal
+
+    } catch (e) {
+        console.error("Error fetching users:", e);
+        contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading users.</div>`;
+    }
 };
 
 const renderClaims = async () => {
@@ -3003,21 +3126,60 @@ const handleDocumentDelete = async (userId, docId, storagePath, callback) => {
 
 
 // Replace the entire openEditModal function in app.js with this new version
+// Replace the entire old openEditModal function with this new complete version
 const openEditModal = async (userId) => {
     const userToEdit = allUsers.find(user => user.id === userId);
     if (!userToEdit) { alert("User not found!"); return; }
 
-    // --- Standard fields (Unchanged) ---
+    document.getElementById('edit-user-form').reset();
+    
+    // --- Determine editor's permissions ---
+    const isDirector = userData.roles.includes('Director');
+    const isHrHead = userData.roles.includes('HR Head');
+    const isHr = userData.roles.includes('HR');
+
+    // --- Populate standard fields ---
     document.getElementById('edit-user-id').value = userToEdit.id;
     document.getElementById('edit-name').textContent = userToEdit.name;
     document.getElementById('edit-email').textContent = userToEdit.email;
     document.getElementById('edit-status').value = userToEdit.status;
+    
+    // --- Department, Roles, Managed Depts (Now with role-based logic) ---
+    const deptSelect = document.getElementById('edit-department');
+    const rolesContainer = document.getElementById('edit-roles');
+    const managedDeptsContainer = document.getElementById('edit-managed-departments');
+
+    const assignableDepts = isDirector ? appConfig.availableDepartments : (userData.managedDepartments || []);
+    deptSelect.innerHTML = assignableDepts.map(dept => `<option value="${dept}" ${dept === userToEdit.primaryDepartment ? 'selected' : ''}>${dept}</option>`).join('');
+
+    let assignableRoles = appConfig.availableRoles;
+    if (isHrHead) { // HR Head cannot assign Director
+        assignableRoles = appConfig.availableRoles.filter(role => role !== 'Director');
+    }
+    rolesContainer.innerHTML = assignableRoles.map(role => {
+        const isChecked = userToEdit.roles.includes(role);
+        return `<label class="flex items-center"><input type="checkbox" class="form-checkbox h-5 w-5 text-indigo-600" value="${role}" ${isChecked ? 'checked' : ''}><span class="ml-2 text-gray-700">${role}</span></label>`
+    }).join('');
+
+    managedDeptsContainer.innerHTML = assignableDepts.map(dept => {
+        const isChecked = userToEdit.managedDepartments && userToEdit.managedDepartments.includes(dept);
+        return `<label class="flex items-center"><input type="checkbox" class="form-checkbox h-5 w-5 text-indigo-600" value="${dept}" ${isChecked ? 'checked' : ''}><span class="ml-2 text-gray-700">${dept}</span></label>`
+    }).join('');
+
+    // If user is HR (not Head or Director), disable critical fields
+    if (isHr && !isHrHead && !isDirector) {
+        deptSelect.disabled = true;
+        rolesContainer.querySelectorAll('input').forEach(input => input.disabled = true);
+        managedDeptsContainer.querySelectorAll('input').forEach(input => input.disabled = true);
+    } else {
+        deptSelect.disabled = false;
+        rolesContainer.querySelectorAll('input').forEach(input => input.disabled = false);
+        managedDeptsContainer.querySelectorAll('input').forEach(input => input.disabled = false);
+    }
 
     // --- Leave Quotas with Dropdown Selector ---
     const year1 = new Date().getFullYear();
     const years = [year1, year1 + 1, year1 + 2];
-
-    // Fetch data for all three years (this part is unchanged)
     const quotaRefs = years.map(year => doc(db, 'users', userId, 'leaveQuotas', String(year)));
     const quotaDocs = await Promise.all(quotaRefs.map(ref => getDoc(ref)));
     const quotaData = {
@@ -3025,23 +3187,15 @@ const openEditModal = async (userId) => {
         [years[1]]: quotaDocs[1].exists() ? quotaDocs[1].data() : {},
         [years[2]]: quotaDocs[2].exists() ? quotaDocs[2].data() : {}
     };
-
     const quotaContainer = document.getElementById('edit-leave-quotas-container');
-    quotaContainer.innerHTML = ''; // Clear previous content
-
-    // 1. Create the year <select> dropdown
+    quotaContainer.innerHTML = '';
     const yearOptionsHTML = years.map(year => `<option value="${year}">${year}</option>`).join('');
-    const yearSelectorHTML = `
+    quotaContainer.innerHTML += `
         <div class="md:col-span-2 mb-4">
             <label for="quota-year-selector" class="block text-sm font-medium text-gray-700">Select Year to Edit</label>
-            <select id="quota-year-selector" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                ${yearOptionsHTML}
-            </select>
+            <select id="quota-year-selector" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm sm:text-sm">${yearOptionsHTML}</select>
         </div>
     `;
-    quotaContainer.innerHTML += yearSelectorHTML;
-
-    // 2. Create a hidden container for each year's inputs
     years.forEach((year, index) => {
         let inputsHTML = '';
         appConfig.requestTypes.forEach(type => {
@@ -3049,71 +3203,29 @@ const openEditModal = async (userId) => {
                 const inputId = `quota-${year}-${type.name.toLowerCase().replace(/ /g, '-')}`;
                 const firestoreFieldName = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
                 const quotaValue = quotaData[year][firestoreFieldName] || '';
-                inputsHTML += `
-                    <div>
-                        <label for="${inputId}" class="block text-sm font-medium text-gray-600">${type.name} Quota</label>
-                        <input type="number" id="${inputId}" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm sm:text-sm" value="${quotaValue}" placeholder="e.g., 112">
-                    </div>`;
+                inputsHTML += `<div><label for="${inputId}" class="block text-sm font-medium text-gray-600">${type.name} Quota</label><input type="number" id="${inputId}" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm sm:text-sm" value="${quotaValue}" placeholder="e.g., 112"></div>`;
             }
         });
-
-        // Apply the grid styling HERE, only to the inputs panel
-        quotaContainer.innerHTML += `
-            <div id="quota-content-${year}" class="year-content-panel md:col-span-2 grid grid-cols-2 gap-4 ${index > 0 ? 'hidden' : ''}">
-                ${inputsHTML}
-            </div>`;
+        quotaContainer.innerHTML += `<div id="quota-content-${year}" class="year-content-panel md:col-span-2 grid grid-cols-2 gap-4 ${index > 0 ? 'hidden' : ''}">${inputsHTML}</div>`;
     });
-
-    // 3. Add event listener to handle dropdown switching
-    const yearSelector = document.getElementById('quota-year-selector');
-    yearSelector.addEventListener('change', (e) => {
+    document.getElementById('quota-year-selector').addEventListener('change', (e) => {
         const selectedYear = e.target.value;
         document.querySelectorAll('.year-content-panel').forEach(panel => {
-            if (panel.id === `quota-content-${selectedYear}`) {
-                panel.classList.remove('hidden');
-            } else {
-                panel.classList.add('hidden');
-            }
+            panel.id === `quota-content-${selectedYear}` ? panel.classList.remove('hidden') : panel.classList.add('hidden');
         });
     });
 
-    // --- The rest of the function is unchanged ---
-    // Department, Roles, Managed Depts
-    const deptSelect = document.getElementById('edit-department');
-    deptSelect.innerHTML = '';
-    appConfig.availableDepartments.forEach(dept => { const option = document.createElement('option'); option.value = dept; option.textContent = dept; if (dept === userToEdit.primaryDepartment) option.selected = true; deptSelect.appendChild(option); });
-    const rolesContainer = document.getElementById('edit-roles');
-    rolesContainer.innerHTML = '';
-    appConfig.availableRoles.forEach(role => { const isChecked = userToEdit.roles.includes(role); rolesContainer.innerHTML += `<label class="flex items-center"><input type="checkbox" class="form-checkbox h-5 w-5 text-indigo-600" value="${role}" ${isChecked ? 'checked' : ''}><span class="ml-2 text-gray-700">${role}</span></label>`; });
-    const managedDeptsContainer = document.getElementById('edit-managed-departments');
-    managedDeptsContainer.innerHTML = '';
-    appConfig.availableDepartments.forEach(dept => { const isChecked = userToEdit.managedDepartments && userToEdit.managedDepartments.includes(dept); managedDeptsContainer.innerHTML += `<label class="flex items-center"><input type="checkbox" class="form-checkbox h-5 w-5 text-indigo-600" value="${dept}" ${isChecked ? 'checked' : ''}><span class="ml-2 text-gray-700">${dept}</span></label>`; });
-
-    // Work Schedule Logic
+    // --- Work Schedule Logic ---
     const scheduleContainer = document.getElementById('edit-work-schedule-container');
     scheduleContainer.innerHTML = '';
     const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
     const userSchedule = userToEdit.workSchedule || {};
     daysOfWeek.forEach(day => {
         const dayData = userSchedule[day] || { active: false, checkIn: '', checkOut: '' };
-        scheduleContainer.innerHTML += `
-            <div class="grid grid-cols-6 gap-3 items-center">
-                <label class="flex items-center col-span-2">
-                    <input type="checkbox" id="sch-active-${day}" class="form-checkbox h-5 w-5 text-indigo-600" ${dayData.active ? 'checked' : ''}>
-                    <span class="ml-2 text-gray-800 font-medium">${day}</span>
-                </label>
-                <div class="col-span-2">
-                    <label for="sch-in-${day}" class="text-xs text-gray-500">Check-in</label>
-                    <input type="time" id="sch-in-${day}" value="${dayData.checkIn || ''}" class="mt-1 block w-full py-1 px-2 border border-gray-300 rounded-md text-sm">
-                </div>
-                <div class="col-span-2">
-                    <label for="sch-out-${day}" class="text-xs text-gray-500">Check-out</label>
-                    <input type="time" id="sch-out-${day}" value="${dayData.checkOut || ''}" class="mt-1 block w-full py-1 px-2 border border-gray-300 rounded-md text-sm">
-                </div>
-            </div>`;
+        scheduleContainer.innerHTML += `<div class="grid grid-cols-6 gap-3 items-center"><label class="flex items-center col-span-2"><input type="checkbox" id="sch-active-${day}" class="form-checkbox h-5 w-5 text-indigo-600" ${dayData.active ? 'checked' : ''}><span class="ml-2 text-gray-800 font-medium">${day}</span></label><div class="col-span-2"><label for="sch-in-${day}" class="text-xs text-gray-500">Check-in</label><input type="time" id="sch-in-${day}" value="${dayData.checkIn || ''}" class="mt-1 block w-full py-1 px-2 border border-gray-300 rounded-md text-sm"></div><div class="col-span-2"><label for="sch-out-${day}" class="text-xs text-gray-500">Check-out</label><input type="time" id="sch-out-${day}" value="${dayData.checkOut || ''}" class="mt-1 block w-full py-1 px-2 border border-gray-300 rounded-md text-sm"></div></div>`;
     });
 
-    // Document Management
+    // --- Document Management ---
     const docsListEl = document.getElementById('existing-docs-list');
     const renderDocs = async () => {
         try {
@@ -3125,16 +3237,7 @@ const openEditModal = async (userId) => {
             }
             docsListEl.innerHTML = docsSnapshot.docs.map(docSnap => {
                 const docData = docSnap.data();
-                return `
-                    <div class="flex justify-between items-center bg-white p-2 rounded-md border">
-                        <div class="truncate">
-                            <i class="fas fa-file-alt text-gray-500 mr-2"></i>
-                            <a href="${docData.storageUrl}" target="_blank" class="text-sm text-indigo-600 hover:underline" title="${docData.fileName}">${docData.fileName}</a>
-                        </div>
-                        <button type="button" class="delete-doc-btn text-red-500 hover:text-red-700 ml-2" data-doc-id="${docSnap.id}" data-storage-path="${docData.storagePath}">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>`;
+                return `<div class="flex justify-between items-center bg-white p-2 rounded-md border"><div class="truncate"><i class="fas fa-file-alt text-gray-500 mr-2"></i><a href="${docData.storageUrl}" target="_blank" class="text-sm text-indigo-600 hover:underline" title="${docData.fileName}">${docData.fileName}</a></div><button type="button" class="delete-doc-btn text-red-500 hover:text-red-700 ml-2" data-doc-id="${docSnap.id}" data-storage-path="${docData.storagePath}"><i class="fas fa-trash"></i></button></div>`;
             }).join('');
             document.querySelectorAll('.delete-doc-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
@@ -3147,99 +3250,162 @@ const openEditModal = async (userId) => {
             docsListEl.innerHTML = '<p class="text-red-500 text-center">Error loading documents.</p>';
         }
     };
-    await renderDocs(); 
+    await renderDocs();
     document.getElementById('upload-doc-button').onclick = () => handleDocumentUpload(userId, renderDocs);
 
+    // Attach listeners and show modal
+    document.getElementById('modal-close-button').addEventListener('click', closeEditModal);
+    document.getElementById('modal-cancel-button').addEventListener('click', closeEditModal);
+    
     editUserModal.classList.remove('hidden');
 };
 
 const closeEditModal = () => editUserModal.classList.add('hidden');
 
 // Replace the entire handleUpdateUser function in app.js with this new version
+// Replace the entire old handleUpdateUser function with this new complete version
 const handleUpdateUser = async (e) => {
-    e.preventDefault();
-    const userId = document.getElementById('edit-user-id').value;
-    const submitButton = e.target.querySelector('button[type="submit"]');
-    submitButton.disabled = true;
-    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+    e.preventDefault();
+    const userId = document.getElementById('edit-user-id').value; // This is the email of the user being edited
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
 
-    // Read Work Schedule from form
-    const newWorkSchedule = {};
-    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-    daysOfWeek.forEach(day => {
-        const isActive = document.getElementById(`sch-active-${day}`).checked;
-        const checkIn = document.getElementById(`sch-in-${day}`).value;
-        const checkOut = document.getElementById(`sch-out-${day}`).value;
-        newWorkSchedule[day] = {
-            active: isActive,
-            checkIn: isActive ? checkIn : '',
-            checkOut: isActive ? checkOut : ''
-        };
-    });
+    const isDirector = userData.roles.includes('Director');
 
-    const updatedUserData = {
-        primaryDepartment: document.getElementById('edit-department').value,
-        status: document.getElementById('edit-status').value,
-        roles: Array.from(document.querySelectorAll('#edit-roles input:checked')).map(i => i.value),
-        managedDepartments: Array.from(document.querySelectorAll('#edit-managed-departments input:checked')).map(i => i.value),
-        workSchedule: newWorkSchedule
-    };
+    // --- Collect ALL data from the form ---
 
-    try {
-        // --- NEW: Update user doc and all three years of quotas in parallel ---
-        const userUpdatePromise = updateDoc(doc(db, 'users', userId), updatedUserData);
+    // 1. Collect Work Schedule from form
+    const newWorkSchedule = {};
+    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    daysOfWeek.forEach(day => {
+        const isActive = document.getElementById(`sch-active-${day}`).checked;
+        const checkIn = document.getElementById(`sch-in-${day}`).value;
+        const checkOut = document.getElementById(`sch-out-${day}`).value;
+        newWorkSchedule[day] = {
+            active: isActive,
+            checkIn: isActive ? checkIn : '',
+            checkOut: isActive ? checkOut : ''
+        };
+    });
 
-        const year1 = new Date().getFullYear();
-        const years = [year1, year1 + 1, year1 + 2];
-        
-        const quotaUpdatePromises = years.map(year => {
-            const updatedQuotaData = {};
-            appConfig.requestTypes.forEach(type => {
-                if (type.hasQuota) {
-                    const quotaInputId = `quota-${year}-${type.name.toLowerCase().replace(/ /g, '-')}`;
-                    const quotaValue = document.getElementById(quotaInputId).value;
-                    
-                    // The field name in Firestore must not change for other functions to work
-                    const firestoreFieldName = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
-                    updatedQuotaData[firestoreFieldName] = parseInt(quotaValue, 10) || 0;
-                }
-            });
-            const quotaRef = doc(db, 'users', userId, 'leaveQuotas', String(year));
-            return setDoc(quotaRef, updatedQuotaData, { merge: true });
-        });
+    // 2. Construct the main user document update object
+    const mainUpdateData = {
+        primaryDepartment: document.getElementById('edit-department').value,
+        status: document.getElementById('edit-status').value,
+        roles: Array.from(document.querySelectorAll('#edit-roles input:checked')).map(i => i.value),
+        managedDepartments: Array.from(document.querySelectorAll('#edit-managed-departments input:checked')).map(i => i.value),
+        workSchedule: newWorkSchedule
+    };
 
-        await Promise.all([userUpdatePromise, ...quotaUpdatePromises]);
-        // --- END OF NEW LOGIC ---
+    // 3. Prepare promises for Leave Quotas (subcollection)
+    const year1 = new Date().getFullYear();
+    const years = [year1, year1 + 1, year1 + 2];
+    const quotaUpdatePromises = years.map(year => {
+        const updatedQuotaData = {};
+        appConfig.requestTypes.forEach(type => {
+            if (type.hasQuota) {
+                const quotaInputId = `quota-${year}-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                const quotaValue = document.getElementById(quotaInputId)?.value;
+                if (quotaValue) {
+                    const firestoreFieldName = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                    updatedQuotaData[firestoreFieldName] = parseInt(quotaValue, 10) || 0;
+                }
+            }
+        });
+        const quotaRef = doc(db, 'users', userId, 'leaveQuotas', String(year));
+        return setDoc(quotaRef, updatedQuotaData, { merge: true });
+    });
 
-        alert('User updated successfully!');
-        closeEditModal();
-        navigateTo('user-management');
 
-    } catch (e) {
-        console.error("Error updating user details or quotas:", e);
-        alert("Failed to update user. Please check the console for details.");
-    } finally {
-        submitButton.disabled = false;
-        submitButton.innerHTML = 'Save Changes';
-    }
+    try {
+        let mainUpdatePromise;
+
+        if (isDirector) {
+            // Directors can update the document directly as per our Firestore rules
+            console.log("Director performing direct update...");
+            mainUpdatePromise = updateDoc(doc(db, 'users', userId), mainUpdateData);
+        } else {
+            // HR and HR Head must use the secure Cloud Function
+            console.log("HR/HR Head calling secure updateUserByManager function...");
+            const updateUserByManager = httpsCallable(functions, 'updateUserByManager');
+            mainUpdatePromise = updateUserByManager({ 
+                targetUserEmail: userId, 
+                updates: mainUpdateData 
+            });
+        }
+
+        // Execute all updates (main profile and all leave quota years) in parallel
+        await Promise.all([mainUpdatePromise, ...quotaUpdatePromises]);
+
+        alert('User updated successfully!');
+        closeEditModal();
+        await navigateTo('user-management'); // Use await to ensure re-render happens correctly
+
+    } catch (e) {
+        console.error("Error updating user:", e);
+        alert(`Failed to update user: ${e.message}`);
+    } finally {
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Save Changes';
+    }
 };
 
-const openCreateModal = () => { createUserForm.reset(); createUserModal.classList.remove('hidden'); };
+const openCreateModal = () => {
+    createUserForm.reset();
+
+    // 1. Determine which departments the creator can assign a new user to
+    const isDirector = userData.roles.includes('Director');
+    const assignableDepts = isDirector ? appConfig.availableDepartments : (userData.managedDepartments || []);
+
+    // 2. Populate the new department dropdown
+    const deptSelect = document.getElementById('create-department');
+    deptSelect.innerHTML = '<option value="">Select a department...</option>'; // Add a placeholder
+    assignableDepts.forEach(dept => {
+        const option = document.createElement('option');
+        option.value = dept;
+        option.textContent = dept;
+        deptSelect.appendChild(option);
+    });
+
+    createUserModal.classList.remove('hidden');
+};
 const closeCreateModal = () => createUserModal.classList.add('hidden');
 const handleCreateUser = async (e) => {
     e.preventDefault();
     const name = document.getElementById('create-name').value.trim();
     const email = document.getElementById('create-email').value.trim().toLowerCase();
-    if (!name || !email) { alert("Please fill in both name and email."); return; }
+    const department = document.getElementById('create-department').value; // Read from the new dropdown
+
+    if (!name || !email || !department) { // Add validation for the department field
+        alert("Please fill in all fields, including the department.");
+        return;
+    }
+
     try {
         const userRef = doc(db, "users", email);
-        if ((await getDoc(userRef)).exists()) { alert("A user with this email already exists."); return; }
-        const newUser = { name, email, photoURL: null, createdAt: serverTimestamp(), status: "active", primaryDepartment: "Unassigned", roles: ["Staff"], managedDepartments: [] };
+        if ((await getDoc(userRef)).exists()) {
+            alert("A user with this email already exists.");
+            return;
+        }
+        const newUser = {
+            name: name,
+            email: email,
+            photoURL: null,
+            createdAt: serverTimestamp(),
+            status: "active",
+            primaryDepartment: department, // Use the selected department
+            roles: ["Staff"],
+            managedDepartments: []
+        };
         await setDoc(userRef, newUser);
         alert("User created successfully!");
         closeCreateModal();
-        navigateTo('user-management');
-    } catch (e) { console.error("Error creating user:", e); alert("Failed to create user."); }
+        navigateTo('user-management'); // Refresh the user list
+    } catch (e) {
+        console.error("Error creating user:", e);
+        alert("Failed to create user.");
+    }
 };
 
 const openRequestModal = () => {
