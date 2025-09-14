@@ -113,7 +113,7 @@ const navItems = [
     { id: 'my-job', label: 'My Job', icon: 'fa-solid fa-list-check', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
     { id: 'support', label: 'Support Requests', icon: 'fa-solid fa-headset', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
     { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
-    { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance'] },
+    { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'Purchaser'] },
     { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR', 'HR Head', 'RegionalDirector'] },
     { id: 'system-health', label: 'System Health', icon: 'fa-solid fa-heart-pulse', requiredRoles: ['Director'] },
     { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director', 'RegionalDirector'] },
@@ -2332,17 +2332,47 @@ const renderPurchasingReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
     let dataForExport = [];
+    let userMap = new Map(); // To store user emails and names
+
+    // NEW: Fetch all users first to map emails to names for the report
+    const fetchAllUsersAndRender = async () => {
+        try {
+            const usersSnapshot = await getDocs(collection(db, 'users'));
+            usersSnapshot.forEach(doc => {
+                userMap.set(doc.id, doc.data().name);
+            });
+            // Now that we have the users, render the filters and fetch the report data
+            renderReportFilters(filtersContainer, { 
+                showDateRange: true, 
+                showStatus: true, 
+                showDepartment: true, 
+                onApply: fetchData,
+                onExport: () => exportToCSV(dataForExport, 'purchasing-report') 
+            });
+            fetchData();
+        } catch (error) {
+            console.error("Error fetching user list for report:", error);
+            contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Could not load user data for the report.</div>`;
+        }
+    };
 
     const fetchData = async () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching purchasing data...</p>`;
 
-        const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director');
+        const isManager = userData.roles.includes('DepartmentManager');
         const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('HR');
         
         let q = query(collection(db, 'purchaseRequests'), orderBy('createdAt', 'desc'));
 
-        if (!canSeeAll && isManager && userData.managedDepartments?.length > 0) {
-            q = query(q, where('department', 'in', userData.managedDepartments));
+        if (!canSeeAll) { // This will now correctly scope a Purchaser by their managed departments
+            const deptsToView = userData.managedDepartments || [];
+            if (deptsToView.length > 0) {
+                 q = query(q, where('department', 'in', deptsToView));
+            } else {
+                 // If a manager/purchaser has no managed departments, they see nothing
+                 dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to any departments.</p>`;
+                 return;
+            }
         }
 
         const status = document.getElementById('report-status')?.value;
@@ -2357,41 +2387,41 @@ const renderPurchasingReport = () => {
             const querySnapshot = await getDocs(q);
             let purchases = querySnapshot.docs.map(doc => ({...doc.data(), id: doc.id}));
 
-            if (startDate) {
-                purchases = purchases.filter(p => p.createdAt.toDate() >= new Date(startDate));
-            }
+            if (startDate) { purchases = purchases.filter(p => p.createdAt.toDate() >= new Date(startDate)); }
             if (endDate) {
                 const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999); // Include the whole end day
+                end.setHours(23, 59, 59, 999);
                 purchases = purchases.filter(p => p.createdAt.toDate() <= end);
             }
             
-            // Prepare data for CSV export
-            dataForExport = purchases.map(req => ({
-                Employee: req.userName,
-                Department: req.department,
-                Item: req.itemDescription,
-                Quantity: req.quantity,
-                EstimatedCost: req.estimatedCost.toFixed(2),
-                Status: req.status,
-                ApprovedBy: req.approvedBy || 'N/A',
-                ProcessedBy: req.processedBy || 'N/A',
-                Justification: req.justification,
-                ProductLink: req.productLink || 'N/A'
-            }));
+            // NEW: Prepare enhanced data for CSV export
+            dataForExport = purchases.map(req => {
+                const difference = req.actualCost ? (req.actualCost - req.estimatedCost).toFixed(2) : 'N/A';
+                return {
+                    Employee: req.userName,
+                    Department: req.department,
+                    Item: req.itemDescription,
+                    Estimated_Cost: req.estimatedCost.toFixed(2),
+                    Actual_Cost: req.actualCost ? req.actualCost.toFixed(2) : 'N/A',
+                    Difference: difference,
+                    Status: req.status,
+                    Approved_By: userMap.get(req.approvedBy) || req.approvedBy || 'N/A',
+                    Processed_By: userMap.get(req.processedBy) || req.processedBy || 'N/A',
+                    Notes: req.purchaserNotes || ''
+                };
+            });
 
             let tableHTML = `
-                <h3 class="text-xl font-semibold mb-4 mt-6">Purchasing Report</h3>
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Est. Cost</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actual Cost</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Difference</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processed By</th>
                             </tr>
                         </thead>
@@ -2403,17 +2433,25 @@ const renderPurchasingReport = () => {
             } else {
                 purchases.forEach(req => {
                     const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-100 text-green-800', Rejected: 'bg-red-100 text-red-800', Processing: 'bg-purple-100 text-purple-800', Completed: 'bg-blue-100 text-blue-800' }[req.status] || 'bg-gray-100 text-gray-800';
+                    const actualCostText = req.actualCost ? `RM${req.actualCost.toFixed(2)}` : 'N/A';
+                    
+                    let differenceText = 'N/A';
+                    let differenceColor = 'text-gray-500';
+                    if (req.actualCost) {
+                        const diff = req.actualCost - req.estimatedCost;
+                        differenceColor = diff > 0 ? 'text-red-600' : 'text-green-600';
+                        differenceText = `RM${diff.toFixed(2)}`;
+                    }
+
                     tableHTML += `
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">${req.userName}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${req.department}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${req.itemDescription}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">$${req.estimatedCost.toFixed(2)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">${req.approvedBy || 'N/A'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${req.processedBy || 'N/A'}</td>
+                            <td class="px-6 py-4">${req.itemDescription}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">RM${req.estimatedCost.toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap font-medium">${actualCostText}</td>
+                            <td class="px-6 py-4 whitespace-nowrap font-bold ${differenceColor}">${differenceText}</td>
+                            <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span></td>
+                            <td class="px-6 py-4 whitespace-nowrap">${userMap.get(req.processedBy) || req.processedBy || 'N/A'}</td>
                         </tr>
                     `;
                 });
@@ -2428,14 +2466,7 @@ const renderPurchasingReport = () => {
         }
     };
 
-    renderReportFilters(filtersContainer, { 
-        showDateRange: true, 
-        showStatus: true, 
-        showDepartment: true, 
-        onApply: fetchData,
-        onExport: () => exportToCSV(dataForExport, 'purchasing-report') 
-    });
-    fetchData();
+    fetchAllUsersAndRender(); // Start by fetching users, then render the rest
 };
 
 const renderAttendanceReport = () => {
@@ -2642,25 +2673,48 @@ const loadReport = (reportType) => {
 const renderReports = async () => {
     pageTitle.textContent = 'Reports';
 
+    // --- NEW LOGIC: Check user roles to determine which tabs to show ---
     const isDirector = userData.roles.includes('Director');
-    
-    const announcementsTab = isDirector 
-        ? '<button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="announcements">Announcements</button>' 
-        : '';
+    const isFinance = userData.roles.includes('Finance');
+    const isHR = userData.roles.includes('HR');
+    // A "Purchaser Only" view is for a user who is a Purchaser but not also a Director, HR, or Finance user.
+    const isPurchaserOnlyView = userData.roles.includes('Purchaser') && !isDirector && !isHR && !isFinance;
+
+    let tabsHTML = '';
+    let defaultReport = 'livestatus';
+
+    if (isPurchaserOnlyView) {
+        // If it's a Purchaser-only view, just show the one tab, pre-selected.
+        tabsHTML = `<button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="purchasing">Purchasing</button>`;
+        defaultReport = 'purchasing';
+    } else {
+        // Otherwise, build the full list of tabs for other managers/admins
+        const fullTabList = [
+            { id: 'livestatus', label: 'Live Status' },
+            { id: 'payroll', label: 'Payroll Summary' },
+            { id: 'exceptions', label: 'Attendance Exceptions' },
+            { id: 'support', label: 'Support Tickets' },
+            { id: 'leave', label: 'Leave / OT' },
+            { id: 'claims', label: 'Claims' },
+            { id: 'purchasing', label: 'Purchasing' },
+            { id: 'attendance', label: 'Attendance History' },
+            { id: 'announcements', label: 'Announcements', directorOnly: true }
+        ];
+
+        tabsHTML = fullTabList.map((tab, index) => {
+            if (tab.directorOnly && !isDirector) return ''; // Skip director-only tabs
+            const isActive = index === 0; // Make the first tab active
+            const activeClasses = 'border-indigo-500 text-indigo-600';
+            const inactiveClasses = 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300';
+            return `<button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${isActive ? activeClasses : inactiveClasses}" data-report="${tab.id}">${tab.label}</button>`;
+        }).join('');
+    }
 
     contentArea.innerHTML = `
         <div class="bg-white p-6 rounded-lg shadow">
             <div class="mb-4 border-b border-gray-200">
                 <nav class="-mb-px flex space-x-8 overflow-x-auto" id="report-tabs">
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="livestatus">Live Status</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="payroll">Payroll Summary</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="exceptions">Attendance Exceptions</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="support">Support Tickets</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="leave">Leave / OT</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="claims">Claims</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="purchasing">Purchasing</button>
-                    <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-report="attendance">Attendance History</button>
-                    ${announcementsTab}
+                    ${tabsHTML}
                 </nav>
             </div>
             <div id="report-content-container"></div>
@@ -2673,15 +2727,14 @@ const renderReports = async () => {
                 t.classList.remove('border-indigo-500', 'text-indigo-600');
                 t.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
             });
-            e.target.classList.add('border-indigo-500', 'text-indigo-600');
-            e.target.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-            loadReport(e.target.dataset.report);
+            e.currentTarget.classList.add('border-indigo-500', 'text-indigo-600');
+            e.currentTarget.classList.remove('border-transparent', 'text-gray-500');
+            loadReport(e.currentTarget.dataset.report);
         });
     });
 
-    loadReport('livestatus');
+    loadReport(defaultReport); // Load the appropriate default report
 };
-
 // =================================================================================
 // END: REPORTS PAGE FUNCTIONS
 // =================================================================================
