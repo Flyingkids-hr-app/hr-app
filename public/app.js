@@ -2128,10 +2128,30 @@ const renderLeaveReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
     let dataForExport = [];
+    let userMap = new Map();
+
+    const fetchAllUsersAndRender = async () => {
+        try {
+            const usersSnapshot = await getDocs(collection(db, 'users'));
+            usersSnapshot.forEach(doc => userMap.set(doc.id, doc.data().name));
+            
+            renderReportFilters(filtersContainer, { 
+                showDateRange: true, 
+                showStatus: true, 
+                showDepartment: true, 
+                onApply: fetchData,
+                onExport: () => exportToCSV(dataForExport, 'leave-ot-report')
+            });
+            fetchData();
+        } catch (error) {
+            console.error("Error fetching user list for report:", error);
+            contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Could not load user data for the report.</div>`;
+        }
+    };
 
     const fetchData = async () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching leave data...</p>`;
-
+        
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director') && !userData.roles.includes('HR');
         let q = query(collection(db, 'requests'), orderBy('createdAt', 'desc'));
 
@@ -2153,7 +2173,6 @@ const renderLeaveReport = () => {
             const querySnapshot = await getDocs(q);
             const requests = querySnapshot.docs.map(doc => doc.data());
             
-            // Prepare data for CSV export
             dataForExport = requests.map(req => ({
                 Employee: req.userName,
                 Department: req.department,
@@ -2162,11 +2181,10 @@ const renderLeaveReport = () => {
                 EndDate: formatDateTime(req.endDate),
                 Hours: req.hours,
                 Status: req.status,
-                ApprovedBy: req.approvedBy || 'N/A',
+                ApprovedBy: userMap.get(req.approvedBy) || req.approvedBy || 'N/A', // NAME LOOKUP
                 Reason: req.reason,
                 DocumentURL: req.documentUrl || 'N/A'
             }));
-
 
             let tableHTML = `
                 <div class="overflow-x-auto">
@@ -2174,10 +2192,8 @@ const renderLeaveReport = () => {
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
                             </tr>
@@ -2186,21 +2202,18 @@ const renderLeaveReport = () => {
             `;
 
             if (requests.length === 0) {
-                tableHTML += `<tr><td colspan="7" class="p-4 text-center text-gray-500">No leave data found.</td></tr>`;
+                tableHTML += `<tr><td colspan="5" class="p-4 text-center text-gray-500">No leave data found.</td></tr>`;
             } else {
                 requests.forEach(req => {
                     const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-100 text-green-800', Rejected: 'bg-red-100 text-red-800' }[req.status] || 'bg-gray-100';
+                    const approverName = userMap.get(req.approvedBy) || req.approvedBy || 'N/A'; // NAME LOOKUP
                     tableHTML += `
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">${req.userName}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${req.department}</td>
                             <td class="px-6 py-4 whitespace-nowrap">${req.type}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${formatDateTime(req.startDate)} to ${formatDateTime(req.endDate)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${req.hours}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">${req.approvedBy || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${formatDateTime(req.startDate)} to ${formatDateTime(req.endDate)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span></td>
+                            <td class="px-6 py-4 whitespace-nowrap">${approverName}</td>
                         </tr>
                     `;
                 });
@@ -2215,20 +2228,33 @@ const renderLeaveReport = () => {
         }
     };
     
-    renderReportFilters(filtersContainer, { 
-        showDateRange: true, 
-        showStatus: true, 
-        showDepartment: true, 
-        onApply: fetchData,
-        onExport: () => exportToCSV(dataForExport, 'leave-ot-report')
-    });
-    fetchData();
+    fetchAllUsersAndRender();
 };
 
 const renderClaimsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
     let dataForExport = [];
+    let userMap = new Map();
+
+    const fetchAllUsersAndRender = async () => {
+        try {
+            const usersSnapshot = await getDocs(collection(db, 'users'));
+            usersSnapshot.forEach(doc => userMap.set(doc.id, doc.data().name));
+
+            renderReportFilters(filtersContainer, { 
+                showDateRange: true, 
+                showStatus: true, 
+                showDepartment: true, 
+                onApply: fetchData,
+                onExport: () => exportToCSV(dataForExport, 'claims-report')
+            });
+            fetchData();
+        } catch (error) {
+            console.error("Error fetching user list for report:", error);
+            contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Could not load user data for the report.</div>`;
+        }
+    };
 
     const fetchData = async () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching claims data...</p>`;
@@ -2238,8 +2264,14 @@ const renderClaimsReport = () => {
         
         let q = query(collection(db, 'claims'), orderBy('createdAt', 'desc'));
 
-        if (!canSeeAll && isManager && userData.managedDepartments?.length > 0) {
-            q = query(q, where('department', 'in', userData.managedDepartments));
+        if (!canSeeAll && (isManager || userData.roles.includes('Finance'))) {
+            const deptsToView = userData.managedDepartments || [];
+            if (deptsToView.length > 0) {
+                q = query(q, where('department', 'in', deptsToView));
+            } else {
+                dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to any departments.</p>`;
+                return;
+            }
         }
 
         const startDate = document.getElementById('report-start-date')?.value;
@@ -2256,7 +2288,6 @@ const renderClaimsReport = () => {
             const querySnapshot = await getDocs(q);
             const claims = querySnapshot.docs.map(doc => doc.data());
             
-            // Prepare data for CSV export
             dataForExport = claims.map(claim => ({
                 Employee: claim.userName,
                 Department: claim.department,
@@ -2264,20 +2295,18 @@ const renderClaimsReport = () => {
                 ExpenseDate: formatDate(claim.expenseDate),
                 Amount: claim.amount.toFixed(2),
                 Status: claim.status,
-                ApprovedBy: claim.approvedBy || 'N/A',
-                PaidBy: claim.processedBy || 'N/A', // Corrected field name
+                ApprovedBy: userMap.get(claim.approvedBy) || claim.approvedBy || 'N/A', // NAME LOOKUP
+                PaidBy: userMap.get(claim.processedBy) || claim.processedBy || 'N/A',   // NAME LOOKUP
                 Description: claim.description,
                 ReceiptURL: claim.receiptUrl
             }));
 
             let tableHTML = `
-                <h3 class="text-xl font-semibold mb-4 mt-6">Claims Report</h3>
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -2289,21 +2318,20 @@ const renderClaimsReport = () => {
             `;
 
             if (claims.length === 0) {
-                tableHTML += `<tr><td colspan="7" class="p-4 text-center text-gray-500">No claims data found.</td></tr>`;
+                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No claims data found.</td></tr>`;
             } else {
                 claims.forEach(claim => {
                     const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-100 text-green-800', Paid: 'bg-blue-100 text-blue-800', Rejected: 'bg-red-100 text-red-800' }[claim.status] || 'bg-gray-100';
+                    const approverName = userMap.get(claim.approvedBy) || claim.approvedBy || 'N/A'; // NAME LOOKUP
+                    const paidByName = userMap.get(claim.processedBy) || claim.processedBy || 'N/A'; // NAME LOOKUP
                     tableHTML += `
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">${claim.userName}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${claim.department}</td>
                             <td class="px-6 py-4 whitespace-nowrap">${claim.claimType}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">$${claim.amount.toFixed(2)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${claim.status}</span>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">${claim.approvedBy || 'N/A'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${claim.processedBy || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">RM${claim.amount.toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${claim.status}</span></td>
+                            <td class="px-6 py-4 whitespace-nowrap">${approverName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${paidByName}</td>
                         </tr>
                     `;
                 });
@@ -2318,14 +2346,7 @@ const renderClaimsReport = () => {
         }
     };
 
-    renderReportFilters(filtersContainer, { 
-        showDateRange: true, 
-        showStatus: true, 
-        showDepartment: true, 
-        onApply: fetchData,
-        onExport: () => exportToCSV(dataForExport, 'claims-report')
-    });
-    fetchData();
+    fetchAllUsersAndRender();
 };
 
 const renderPurchasingReport = () => {
