@@ -354,21 +354,16 @@ exports.getLiveTeamStatus = onCall({
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: correctAttendanceRecord (NEW)
 // =================================================================================
+// Replace the entire old correctAttendanceRecord function with this new, secure version
 exports.correctAttendanceRecord = onCall({
     timeoutSeconds: 60,
 }, async (request) => {
-    // 1. --- AUTHENTICATION & PERMISSION CHECK ---
+    // 1. --- AUTHENTICATION ---
     if (!request.auth) {
         throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
     const managerEmail = request.auth.token.email;
     const managerRoles = request.auth.token.roles || [];
-    const isAuthorized = managerRoles.some(role => 
-        ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Admin'].includes(role)
-    );
-    if (!isAuthorized) {
-        throw new HttpsError('permission-denied', 'You do not have permission to perform this action.');
-    }
 
     // 2. --- INPUT VALIDATION ---
     const { exceptionId, attendanceDocId, userId, date, checkIn, checkOut, remarks } = request.data;
@@ -377,56 +372,51 @@ exports.correctAttendanceRecord = onCall({
     }
 
     try {
-        // 3. --- FIRESTORE TRANSACTION ---
-        // A transaction ensures both the attendance and the exception are updated together, or not at all.
+        const managerDoc = await db.collection('users').doc(managerEmail).get();
+        const targetUserDoc = await db.collection('users').doc(userId).get();
+
+        if (!managerDoc.exists) { throw new HttpsError('not-found', 'Your user profile could not be found.'); }
+        if (!targetUserDoc.exists) { throw new HttpsError('not-found', 'The employee profile could not be found.'); }
+        
+        const managerData = managerDoc.data();
+        const targetUserData = targetUserDoc.data();
+
+        // 3. --- NEW SCOPED PERMISSION CHECK ---
+        const isDirector = managerRoles.includes('Director');
+        if (!isDirector) {
+            const managedDepartments = managerData.managedDepartments || [];
+            if (!managedDepartments.includes(targetUserData.primaryDepartment)) {
+                throw new HttpsError('permission-denied', `You do not have permission to correct attendance for users in the ${targetUserData.primaryDepartment} department.`);
+            }
+        }
+        
+        // 4. --- FIRESTORE TRANSACTION ---
         await db.runTransaction(async (transaction) => {
             const exceptionRef = db.collection('attendanceExceptions').doc(exceptionId);
             const exceptionDoc = await transaction.get(exceptionRef);
 
-            if (!exceptionDoc.exists) {
-                throw new HttpsError('not-found', 'The specified exception does not exist.');
-            }
+            if (!exceptionDoc.exists) { throw new HttpsError('not-found', 'The specified exception does not exist.'); }
             if (exceptionDoc.data().status !== 'Pending') {
-                 throw new HttpsError('failed-precondition', 'This exception is no longer pending and cannot be corrected.');
+                throw new HttpsError('failed-precondition', 'This exception is no longer pending and cannot be corrected.');
             }
 
-            const userDoc = await db.collection('users').doc(userId).get();
-            if (!userDoc.exists) {
-                throw new HttpsError('not-found', 'The employee profile could not be found.');
-            }
-            const userData = userDoc.data();
-
-            // Prepare the data for the attendance record
             const attendanceData = {
                 userId: userId,
-                userName: userData.name,
-                department: userData.primaryDepartment,
+                userName: targetUserData.name,
+                department: targetUserData.primaryDepartment,
                 date: date,
+                checkInTime: checkIn ? admin.firestore.Timestamp.fromDate(moment.tz(`${date} ${checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur').toDate()) : null,
+                checkOutTime: checkOut ? admin.firestore.Timestamp.fromDate(moment.tz(`${date} ${checkOut}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur').toDate()) : null,
             };
 
-            // Convert HH:mm time strings to full Firestore Timestamps
-            if (checkIn) {
-                attendanceData.checkInTime = admin.firestore.Timestamp.fromDate(moment.tz(`${date} ${checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur').toDate());
-            } else {
-                attendanceData.checkInTime = null;
-            }
-            if (checkOut) {
-                attendanceData.checkOutTime = admin.firestore.Timestamp.fromDate(moment.tz(`${date} ${checkOut}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur').toDate());
-            } else {
-                attendanceData.checkOutTime = null;
-            }
-
-            // If an attendance doc already exists (e.g., for 'Late' or 'Missed Checkout'), update it.
-            // If it doesn't exist (e.g., for 'Absent'), create a new one.
             if (attendanceDocId) {
                 const attendanceRef = db.collection('attendance').doc(attendanceDocId);
                 transaction.update(attendanceRef, attendanceData);
             } else {
-                const newAttendanceRef = db.collection('attendance').doc(); // Create a new doc
+                const newAttendanceRef = db.collection('attendance').doc();
                 transaction.set(newAttendanceRef, attendanceData);
             }
 
-            // Finally, update the exception itself to mark it as 'Corrected'.
             transaction.update(exceptionRef, {
                 status: 'Corrected',
                 correctionRemarks: remarks,
@@ -440,13 +430,10 @@ exports.correctAttendanceRecord = onCall({
 
     } catch (error) {
         console.error("Error in correctAttendanceRecord transaction:", error);
-        if (error instanceof HttpsError) {
-            throw error;
-        }
+        if (error instanceof HttpsError) { throw error; }
         throw new HttpsError("internal", "An unexpected error occurred while saving the correction.", error);
     }
 });
-
 
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: generatePayrollReport (NEW)
@@ -1011,3 +998,59 @@ exports.setInitialDirector = onCall(async (request) => {
     throw new HttpsError('internal', 'An internal error occurred while setting the custom claim.');
   }
 })
+
+// =================================================================================
+// FIRESTORE TRIGGER: onClaimStatusChangeSendNotification (NEW)
+// Notifies staff and the original approving manager when a claim is rejected by Finance.
+// =================================================================================
+exports.onClaimStatusChangeSendNotification = onDocumentUpdated("claims/{claimId}", async (event) => {
+    const beforeData = event.data.before.data();
+    const afterData = event.data.after.data();
+
+    if (beforeData.status === 'Approved' && afterData.status === 'Rejected') {
+        const staffToNotify = afterData.userId;
+        const managerToNotify = afterData.approvedBy;
+        const rejectorEmail = afterData.rejectedBy;
+
+        if (!staffToNotify || !managerToNotify || !rejectorEmail) return null;
+
+        let rejectorName = rejectorEmail;
+        try {
+            const rejectorDoc = await db.collection('users').doc(rejectorEmail).get();
+            if (rejectorDoc.exists) rejectorName = rejectorDoc.data().name;
+        } catch (e) {
+            console.error("Could not fetch rejector's name.", e);
+        }
+
+        const batch = db.batch();
+
+        // 1. Create alert for the original staff member
+        const staffMessage = `Your claim for RM${afterData.amount.toFixed(2)} was rejected by Finance (${rejectorName}). Reason: ${afterData.rejectionReason}`;
+        const staffAlertRef = db.collection('userAlerts').doc();
+        batch.set(staffAlertRef, {
+            userId: staffToNotify,
+            message: staffMessage,
+            acknowledged: false,
+            createdAt: FieldValue.serverTimestamp(),
+            type: 'ClaimRejected'
+        });
+
+        // 2. Create alert for the manager who originally approved it
+        if (managerToNotify && managerToNotify !== rejectorEmail) {
+            const managerMessage = `The claim for ${afterData.userName}, which you approved, was later rejected by Finance (${rejectorName}). Reason: ${afterData.rejectionReason}`;
+            const managerAlertRef = db.collection('userAlerts').doc();
+            batch.set(managerAlertRef, {
+                userId: managerToNotify,
+                message: managerMessage,
+                acknowledged: false,
+                createdAt: FieldValue.serverTimestamp(),
+                type: 'ClaimRejectedForManager'
+            });
+        }
+
+        await batch.commit();
+        console.log("Successfully created rejection alerts.");
+    }
+
+    return null;
+});

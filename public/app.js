@@ -305,6 +305,27 @@ const handleAcknowledgeAnnouncement = async (e) => {
     }
 };
 
+const handleAcknowledgeAlert = async (e) => {
+    const button = e.currentTarget;
+    const alertId = button.dataset.id;
+    const banner = document.getElementById(`banner-${alertId}`);
+
+    button.disabled = true;
+    button.textContent = 'Acknowledging...';
+
+    try {
+        const alertRef = doc(db, 'userAlerts', alertId);
+        await updateDoc(alertRef, { acknowledged: true });
+        if (banner) banner.remove();
+    } catch (error) {
+        console.error("Error acknowledging alert:", error);
+        alert("Failed to acknowledge the notification. Please try again.");
+        button.disabled = false;
+        button.textContent = 'Acknowledge';
+    }
+};
+
+
 // --- Data & Auth ---
 const handleSignIn = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { console.error(e); } };
 const handleSignOut = async () => { try { await signOut(auth); } catch (e) { console.error(e); } };
@@ -368,18 +389,40 @@ const renderDashboard = async () => {
         snapshots.forEach(snapshot => { totalPending += snapshot.size; });
         return totalPending;
     };
-    const getFinanceClaims = async () => {
-        const claimsRef = collection(db, 'claims');
-        const q = query(claimsRef, where('status', '==', 'Approved'));
-        const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => doc.data());
-    };
-    const getPurchaserApprovals = async () => {
-        const purchaseRef = collection(db, 'purchaseRequests');
-        const q = query(purchaseRef, where('status', 'in', ['Approved', 'Processing']));
-        const snapshot = await getDocs(q);
-        return snapshot.size;
-    };
+const getFinanceClaims = async () => {
+    const claimsRef = collection(db, 'claims');
+    let q = query(claimsRef, where('status', '==', 'Approved'));
+
+    // NEW: Scope the query if the user is not a Director
+    if (!userData.roles.includes('Director')) {
+        const deptsToView = userData.managedDepartments || [];
+        if (deptsToView.length > 0) {
+            q = query(q, where('department', 'in', deptsToView));
+        } else {
+            return []; // If a Finance user manages no departments, they can't see any claims.
+        }
+    }
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => doc.data());
+};
+
+const getPurchaserApprovals = async () => {
+    const purchaseRef = collection(db, 'purchaseRequests');
+    let q = query(purchaseRef, where('status', 'in', ['Approved', 'Processing']));
+
+    // NEW: Scope the query if the user is not a Director
+    if (!userData.roles.includes('Director')) {
+        const deptsToView = userData.managedDepartments || [];
+        if (deptsToView.length > 0) {
+            q = query(q, where('department', 'in', deptsToView));
+        } else {
+            return 0; // If a Purchaser manages no departments, they see 0 approvals.
+        }
+    }
+    const snapshot = await getDocs(q);
+    return snapshot.size;
+};
+
     const getMyAssignedJobs = async () => {
         const supportRef = collection(db, 'supportRequests');
         const q = query(supportRef, where('assigneeId', '==', currentUser.email), where('status', '!=', 'Closed'));
@@ -388,6 +431,11 @@ const renderDashboard = async () => {
     };
     const getMyUnacknowledgedExceptions = async () => {
         const q = query(collection(db, 'attendanceExceptions'), where('userId', '==', currentUser.email), where('acknowledged', '==', false));
+        return await getDocs(q);
+    };
+
+const getMyUnacknowledgedAlerts = async () => {
+        const q = query(collection(db, 'userAlerts'), where('userId', '==', currentUser.email), where('acknowledged', '==', false));
         return await getDocs(q);
     };
 
@@ -446,19 +494,29 @@ const renderDashboard = async () => {
 
 
     try {
-        const [
-            managerApprovalsCount, 
-            financeClaims, 
-            myAssignedJobs, 
-            purchaserApprovalsCount,
-            exceptionsSnapshot
-        ] = await Promise.all([
-            (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager') || userData.roles.includes('RegionalDirector')) ? getManagerApprovalsCount() : Promise.resolve(0),
-            userData.roles.includes('Finance') ? getFinanceClaims() : Promise.resolve([]),
-            getMyAssignedJobs(),
-            userData.roles.includes('Purchaser') ? getPurchaserApprovals() : Promise.resolve(0),
-            getMyUnacknowledgedExceptions()
-        ]);
+        // --- TEMPORARY DIAGNOSTIC CODE ---
+console.log("--- STARTING DASHBOARD DIAGNOSTIC ---");
+
+console.log("Testing: getManagerApprovalsCount");
+const managerApprovalsCount = (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager') || userData.roles.includes('RegionalDirector')) ? await getManagerApprovalsCount() : 0;
+
+console.log("Testing: getFinanceClaims");
+const financeClaims = userData.roles.includes('Finance') ? await getFinanceClaims() : [];
+
+console.log("Testing: getMyAssignedJobs");
+const myAssignedJobs = await getMyAssignedJobs();
+
+console.log("Testing: getPurchaserApprovals");
+const purchaserApprovalsCount = userData.roles.includes('Purchaser') ? await getPurchaserApprovals() : 0;
+
+console.log("Testing: getMyUnacknowledgedExceptions");
+const exceptionsSnapshot = await getMyUnacknowledgedExceptions();
+
+console.log("Testing: getMyUnacknowledgedAlerts");
+const alertsSnapshot = await getMyUnacknowledgedAlerts();
+
+console.log("--- DASHBOARD DIAGNOSTIC COMPLETE ---");
+// --- END OF TEMPORARY CODE ---
         
         let alertsHtml = '';
         if (!exceptionsSnapshot.empty) {
@@ -475,6 +533,13 @@ const renderDashboard = async () => {
             });
         }
         
+// NEW: Render General Alert Banners
+        alertsSnapshot.forEach(doc => {
+            const alert = { id: doc.id, ...doc.data() };
+            alertsHtml += `<div id="banner-${alert.id}" class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-md shadow-md flex justify-between items-center"><p class="font-bold">${alert.message}</p><button data-id="${alert.id}" class="acknowledge-alert-btn ml-4 px-3 py-1 bg-yellow-500 text-white text-sm font-bold rounded-md hover:bg-yellow-600">Acknowledge</button></div>`;
+        });
+
+
         const currentYear = new Date().getFullYear();
         const yearOptions = [currentYear, currentYear + 1, currentYear + 2].map(y => `<option value="${y}">${y}</option>`).join('');
 
@@ -540,6 +605,9 @@ const renderDashboard = async () => {
 
         document.querySelectorAll('.acknowledge-announcement-btn').forEach(btn => {
             btn.addEventListener('click', handleAcknowledgeAnnouncement);
+        });
+        document.querySelectorAll('.acknowledge-alert-btn').forEach(btn => {
+            btn.addEventListener('click', handleAcknowledgeAlert);
         });
         if (canAnnounce) {
             document.getElementById('open-announcement-modal-btn').addEventListener('click', openAnnouncementModal);
@@ -1005,15 +1073,22 @@ const renderApprovals = async () => {
             }
         }
 
-        // 2. For Finance: Fetch APPROVED claims across ALL departments
-        if (isFinance) {
-            approvalPromises.push(getDocs(query(collection(db, 'claims'), where('status', '==', 'Approved'))).then(snap => ({type: 'claims', docs: snap.docs})));
-        }
-
-        // 3. For Purchasers: Fetch APPROVED or PROCESSING purchase requests across ALL departments
-        if (isPurchaser) {
-            approvalPromises.push(getDocs(query(collection(db, 'purchaseRequests'), where('status', 'in', ['Approved', 'Processing']))).then(snap => ({type: 'purchaseRequests', docs: snap.docs})));
-        }
+// 2. For Finance: Fetch APPROVED claims from their managed departments
+if (isFinance) {
+    const deptsToView = userData.managedDepartments || [];
+    if (deptsToView.length > 0) {
+        const q = query(collection(db, 'claims'), where('status', '==', 'Approved'), where('department', 'in', deptsToView));
+        approvalPromises.push(getDocs(q).then(snap => ({type: 'claims', docs: snap.docs})));
+    }
+}
+// 3. For Purchasers: Fetch APPROVED or PROCESSING purchase requests from their managed departments
+if (isPurchaser) {
+    const deptsToView = userData.managedDepartments || [];
+    if (deptsToView.length > 0) {
+        const q = query(collection(db, 'purchaseRequests'), where('status', 'in', ['Approved', 'Processing']), where('department', 'in', deptsToView));
+        approvalPromises.push(getDocs(q).then(snap => ({type: 'purchaseRequests', docs: snap.docs})));
+    }
+}
 
         const results = await Promise.all(approvalPromises);
         
@@ -2156,7 +2231,7 @@ const renderClaimsReport = () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching claims data...</p>`;
 
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director');
-        const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('Finance') || userData.roles.includes('HR');
+        const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('HR');
         
         let q = query(collection(db, 'claims'), orderBy('createdAt', 'desc'));
 
@@ -2259,7 +2334,7 @@ const renderPurchasingReport = () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching purchasing data...</p>`;
 
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director');
-        const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('Finance') || userData.roles.includes('HR') || userData.roles.includes('Purchaser');
+        const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('HR');
         
         let q = query(collection(db, 'purchaseRequests'), orderBy('createdAt', 'desc'));
 
@@ -2764,20 +2839,43 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                 bodyHtml += `<p><strong>Applicant:</strong> ${data.userName}</p><p><strong>Type:</strong> ${data.type}</p><p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p><p><strong>Calculated Duration:</strong> ${duration}</p><p><strong>Hours Claimed:</strong> ${data.hours}</p><p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p><p><strong>Status:</strong> ${data.status}</p>${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}`;
                 if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>`; }
                 break;
-            case 'claims':
-                modalTitle.textContent = 'Expense Claim Details';
-                bodyHtml += `
-                     <p><strong>Applicant:</strong> ${data.userName}</p>
-                     <p><strong>Claim Type:</strong> ${data.claimType}</p>
-                     <p><strong>Expense Date:</strong> ${formatDate(data.expenseDate)}</p>
-                     <p><strong>Amount:</strong> RM${data.amount.toFixed(2)}</p>
-                     <p><strong>Description:</strong><br><span class="pl-2">${data.description}</span></p>
-                     <p><strong>Status:</strong> ${data.status}</p>
-                     ${data.receiptUrl ? `<p><strong>Receipt:</strong> <a href="${data.receiptUrl}" target="_blank" class="text-indigo-600 hover:underline">View Receipt</a></p>` : '<p><strong>Receipt:</strong> No receipt was uploaded.</p>'}
-                `;
-                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-claim-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`; }
-                else if (isApproval && data.status === 'Approved' && userData.roles.includes('Finance')) { footerHtml += `<button class="paid-claim-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Mark as Paid</button>`; }
-                break;
+// Find the 'case 'claims':' block inside openRequestDetailsModal and replace it with this:
+case 'claims':
+    modalTitle.textContent = 'Expense Claim Details';
+    bodyHtml += `
+        <p><strong>Applicant:</strong> ${data.userName}</p>
+        <p><strong>Claim Type:</strong> ${data.claimType}</p>
+        <p><strong>Expense Date:</strong> ${formatDate(data.expenseDate)}</p>
+        <p><strong>Amount:</strong> RM${data.amount.toFixed(2)}</p>
+        <p><strong>Description:</strong><br><span class="pl-2">${data.description}</span></p>
+        <p><strong>Status:</strong> ${data.status}</p>
+        ${data.receiptUrl ? `<p><strong>Receipt:</strong> <a href="${data.receiptUrl}" target="_blank" class="text-indigo-600 hover:underline">View Receipt</a></p>` : '<p><strong>Receipt:</strong> No receipt was uploaded.</p>'}
+    `;
+
+    // --- NEW CODE START ---
+    // Add a special block to show rejection details if they exist
+    if (data.status === 'Rejected' && data.rejectionReason) {
+        bodyHtml += `
+            <div class="mt-4 p-3 bg-red-50 border-l-4 border-red-400 text-red-700 rounded-md">
+                <p class="font-bold">Rejection Details</p>
+                <p class="text-sm"><strong>Rejected By:</strong> ${data.rejectedBy || 'N/A'}</p>
+                <p class="text-sm"><strong>Reason:</strong> ${data.rejectionReason}</p>
+            </div>
+        `;
+    }
+    // --- NEW CODE END ---
+
+    // Logic for footer buttons (from our previous fix)
+    if (isApproval) {
+        if (data.status === 'Pending' && !userData.roles.includes('Finance')) {
+            footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-claim-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`;
+        } 
+        else if (data.status === 'Approved' && userData.roles.includes('Finance')) {
+            footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="paid-claim-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Mark as Paid</button>`;
+        }
+    }
+    break;
+
             case 'purchaseRequests':
                 modalTitle.textContent = 'Purchase Request Details';
                 bodyHtml += `
@@ -2890,10 +2988,27 @@ const handleApproveClaim = async (e) => {
 
 const handleRejectClaim = async (e) => {
     const claimId = e.target.dataset.id;
-    if (!confirm("Are you sure you want to reject this claim?")) return;
+    
+    // NEW: Ask for a rejection reason
+    const reason = prompt("Please provide a reason for rejecting this claim:");
+    if (reason === null) { // User clicked cancel
+        return; 
+    }
+    if (!reason.trim()) {
+        alert("A reason is required to reject a claim.");
+        return;
+    }
+
     try {
         const claimRef = doc(db, 'claims', claimId);
-        await updateDoc(claimRef, { status: 'Rejected', approvedBy: currentUser.email });
+        // NEW: Save the rejection reason and who rejected it
+        await updateDoc(claimRef, { 
+    status: 'Rejected', 
+    // We no longer overwrite 'approvedBy'. It remains the original manager.
+    rejectionReason: reason,
+    rejectedBy: currentUser.email
+});
+
         alert('Claim rejected.');
         closeRequestDetailsModal();
         navigateTo('approvals');
@@ -2902,7 +3017,6 @@ const handleRejectClaim = async (e) => {
         alert("Failed to reject claim.");
     }
 };
-
 const handleMarkAsPaid = async (e) => {
     const claimId = e.target.dataset.id;
     if (!confirm("Are you sure you want to mark this claim as paid? This action cannot be undone.")) return;
@@ -3980,7 +4094,7 @@ const showMainApp = () => {
     renderSidebar();
     setupMobileMenu(); // <-- ADD THIS LINE
     navigateTo('dashboard');
-};
+   };
 
 const showLoginScreen = () => {
     appLoader.classList.add('hidden');

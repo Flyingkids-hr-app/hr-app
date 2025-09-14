@@ -9,20 +9,20 @@ service cloud.firestore {
     
     function hasAnyRole(roleList) {
       return isSignedIn() &&
-           'roles' in request.auth.token && 
-           request.auth.token.roles.hasAny(roleList);
+             'roles' in request.auth.token && 
+             request.auth.token.roles.hasAny(roleList);
     }
 
     function managesDepartmentOfNewDoc() {
       return isSignedIn() &&
-           'managedDepartments' in request.auth.token &&
-           request.auth.token.managedDepartments[request.resource.data.department] == true;
+             'managedDepartments' in request.auth.token &&
+             request.auth.token.managedDepartments[request.resource.data.department] == true;
     }
     
     function managesDepartmentOfDoc() {
       return isSignedIn() &&
-           'managedDepartments' in request.auth.token &&
-           request.auth.token.managedDepartments[resource.data.department] == true;
+             'managedDepartments' in request.auth.token &&
+             request.auth.token.managedDepartments[resource.data.department] == true;
     }
     
     function isOwnerOfDoc() {
@@ -37,7 +37,7 @@ service cloud.firestore {
 
     match /configuration/{docId} {
       allow read: if isSignedIn();
-      allow write: if hasAnyRole(['Director', 'Admin', 'HR Head']);
+      allow write: if hasAnyRole(['Director']);
     }
 
     match /users/{userEmail} {
@@ -48,31 +48,27 @@ service cloud.firestore {
       
       match /documents/{docId} {
         allow read: if (isSignedIn() && request.auth.token.email == userEmail) || hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']) || (request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true);
-
         allow write: if hasAnyRole(['Director', 'HR', 'HR Head', 'Finance']) || (request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true);
-
       }
       match /notifications/{docId} {
         allow read, write: if isSignedIn() && request.auth.token.email == userEmail;
       }
       match /leaveQuotas/{year} {
           allow get: if (isSignedIn() && request.auth.token.email == userEmail) ||
+                         hasAnyRole(['Director', 'HR', 'HR Head']) ||
+                         (
+                           'managedDepartments' in request.auth.token &&
+                           request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true
+                         );
+          allow list: if hasAnyRole(['Director', 'HR', 'HR Head']);
+          allow write: if (isSignedIn() && request.auth.token.email == userEmail) ||
                            hasAnyRole(['Director', 'HR', 'HR Head']) ||
                            (
                              'managedDepartments' in request.auth.token &&
                              request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true
                            );
-          allow list: if hasAnyRole(['Director', 'HR', 'HR Head']);
-          allow write: if (isSignedIn() && request.auth.token.email == userEmail) ||
-                            hasAnyRole(['Director', 'HR', 'HR Head']) ||
-                            (
-                              'managedDepartments' in request.auth.token &&
-                              request.auth.token.managedDepartments[get(/databases/$(database)/documents/users/$(userEmail)).data.primaryDepartment] == true
-                            );
       }
     }
-
-    // --- Rules for Shared Data Collections ---
 
     match /requests/{docId} {
       allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
@@ -81,13 +77,13 @@ service cloud.firestore {
     }
     
     match /claims/{docId} {
-      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'Finance']) || managesDepartmentOfDoc());
+      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director']) || managesDepartmentOfDoc());
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isCreatingForSelf();
     }
 
     match /purchaseRequests/{docId} {
-      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'Purchaser']) || managesDepartmentOfDoc());
+      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director']) || managesDepartmentOfDoc());
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isCreatingForSelf();
     }
@@ -99,30 +95,30 @@ service cloud.firestore {
     }
 
     match /attendance/{docId} {
-      allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc());
+      allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
       allow list: if isSignedIn();
-      allow create: if isSignedIn() && (isCreatingForSelf() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfNewDoc());
-      allow update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc());
+      allow create: if isSignedIn() && (isCreatingForSelf() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfNewDoc());
+      // FIXED: Removed stray comma from the end of the hasAnyRole list
+      allow update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
     }
 
     match /attendanceExceptions/{docId} {
       allow create: if true; // Created by backend function
-      allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc());
+      allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
       allow list: if isSignedIn();
-      allow update: if (hasAnyRole(['Director', 'HR', 'HR Head', 'Admin']) || managesDepartmentOfDoc()) || (isOwnerOfDoc() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']));
+      allow update: if (hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc()) || (isOwnerOfDoc() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']));
     }
     
     match /announcements/{announcementId} {
       allow read, list: if isSignedIn();
-      allow create: if 
-        hasAnyRole(['Director', 'HR Head', 'Admin']) ||
+      allow create: if hasAnyRole(['Director']) ||
         (
-            'managedDepartments' in request.auth.token &&
-            request.resource.data.targetDepartments.size() > 0 &&
-            request.resource.data.targetDepartments.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
+          'managedDepartments' in request.auth.token &&
+          request.resource.data.targetDepartments.size() > 0 &&
+          request.resource.data.targetDepartments.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
         );
       allow update, delete: if isSignedIn() && (resource.data.creatorId == request.auth.token.email || hasAnyRole(['Director']));
-      
+
       match /acknowledgements/{userEmail} {
         allow get: if isSignedIn() && request.auth.token.email == userEmail;
         allow list: if hasAnyRole(['Director']);
@@ -131,25 +127,35 @@ service cloud.firestore {
       }
     }
     
+    match /userAlerts/{alertId} {
+      // A user can read or query for their own alerts.
+      allow read: if isSignedIn() && request.auth.token.email == resource.data.userId;
+      
+      // A user can only update the 'acknowledged' field of their own alert.
+      allow update: if isSignedIn() && request.auth.token.email == resource.data.userId &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']);
+      
+      // No one can create or delete alerts from the client side.
+      allow create, delete: if false;
+    }
+
     match /companyCalendar/{date} {
       allow read: if isSignedIn();
-      // Rule for creating and updating is unchanged, but now explicit
-allow create, update: if (
-  hasAnyRole(['Director', 'Admin'])
-) || (
-  hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
-  !request.resource.data.appliesTo.hasAny(['__ALL__']) &&
-  request.resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
-);
+      
+      allow create, update: if (
+        hasAnyRole(['Director', 'Admin'])
+      ) || (
+        hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
+        !request.resource.data.appliesTo.hasAny(['__ALL__']) &&
+        request.resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
+      );
 
-// NEW rule specifically for deleting
-allow delete: if
-  hasAnyRole(['Director', 'Admin']) ||
-  (
-    hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
-    resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
-  );
+      allow delete: if
+        hasAnyRole(['Director', 'Admin']) ||
+        (
+          hasAnyRole(['HR', 'HR Head', 'RegionalDirector']) &&
+          resource.data.appliesTo.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
+        );
     }
   }
 }
-
