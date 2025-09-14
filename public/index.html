@@ -434,6 +434,41 @@
     </div>
 </div>
 
+<div id="complete-purchase-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 h-full w-full flex items-center justify-center p-4 z-50">
+    <div class="relative w-full max-w-2xl shadow-lg rounded-md bg-white flex flex-col max-h-[90vh]">
+        
+        <div class="flex-shrink-0 flex justify-between items-center border-b p-5">
+            <h3 class="text-2xl font-bold text-gray-900">Complete Purchase Request</h3>
+            <button id="complete-purchase-modal-close-button" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times fa-lg"></i></button>
+        </div>
+        
+        <form id="complete-purchase-form" class="flex-grow flex flex-col min-h-0">
+            <input type="hidden" id="complete-purchase-request-id">
+
+            <div class="flex-grow overflow-y-auto p-6 space-y-4">
+                <div>
+                    <label for="purchase-actual-cost" class="block text-sm font-medium text-gray-700">Actual Cost (RM)</label>
+                    <input type="number" id="purchase-actual-cost" required step="0.01" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="e.g., 125.50">
+                </div>
+                <div>
+                    <label for="purchase-receipt-upload" class="block text-sm font-medium text-gray-700">Upload Invoice / Receipt <span class="text-red-500">*</span></label>
+                    <input type="file" id="purchase-receipt-upload" required class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                    <p id="purchase-upload-progress" class="text-sm text-gray-500 mt-1"></p>
+                </div>
+                <div>
+                    <label for="purchaser-notes" class="block text-sm font-medium text-gray-700">Purchaser Notes / Remarks</label>
+                    <textarea id="purchaser-notes" required rows="4" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="e.g., Found a promotional deal at IKEA, saved RM10."></textarea>
+                </div>
+            </div>
+
+            <div class="flex-shrink-0 flex justify-end space-x-3 border-t p-5">
+                <button id="complete-purchase-modal-cancel-button" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Save & Complete Purchase</button>
+            </div>
+        </form>
+    </div>
+</div>
+
     <!-- View Request Details Modal -->
     <div id="view-request-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-70 overflow-y-auto h-full w-full flex items-center justify-center z-50">
         <div class="relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">

@@ -88,7 +88,10 @@ const announcementModalCancelButton = document.getElementById('announcement-moda
 const viewAcknowledgementsModal = document.getElementById('view-acknowledgements-modal');
 const viewAcknowledgementsModalCloseButton = document.getElementById('view-acknowledgements-modal-close-button');
 const viewAcknowledgementsModalCancelButton = document.getElementById('view-acknowledgements-modal-cancel-button');
-
+const completePurchaseModal = document.getElementById('complete-purchase-modal');
+const completePurchaseForm = document.getElementById('complete-purchase-form');
+const completePurchaseModalCloseButton = document.getElementById('complete-purchase-modal-close-button');
+const completePurchaseModalCancelButton = document.getElementById('complete-purchase-modal-cancel-button');
 
 // --- Global State ---
 let currentUser = null;
@@ -2889,7 +2892,7 @@ case 'claims':
                 `;
                 if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-purchase-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-purchase-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`; }
                 else if (isApproval && data.status === 'Approved' && userData.roles.includes('Purchaser')) { footerHtml += `<button class="process-purchase-button bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Start Processing</button>`; }
-                else if (isApproval && data.status === 'Processing' && userData.roles.includes('Purchaser')) { footerHtml += `<button class="complete-purchase-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Mark Completed</button>`; }
+                else if (isApproval && data.status === 'Processing' && userData.roles.includes('Purchaser')) { footerHtml += `<button class="open-complete-purchase-modal-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2">Complete Purchase</button>`; }
                 break;
         }
 
@@ -2906,7 +2909,7 @@ case 'claims':
         if (document.querySelector('.approve-purchase-button')) document.querySelector('.approve-purchase-button').addEventListener('click', (e) => handlePurchaseUpdate(e.target.dataset.id, 'Approved', 'approvedBy'));
         if (document.querySelector('.reject-purchase-button')) document.querySelector('.reject-purchase-button').addEventListener('click', (e) => handlePurchaseUpdate(e.target.dataset.id, 'Rejected', 'approvedBy'));
         if (document.querySelector('.process-purchase-button')) document.querySelector('.process-purchase-button').addEventListener('click', (e) => handlePurchaseUpdate(e.target.dataset.id, 'Processing', 'processedBy'));
-        if (document.querySelector('.complete-purchase-button')) document.querySelector('.complete-purchase-button').addEventListener('click', (e) => handlePurchaseUpdate(e.target.dataset.id, 'Completed', 'processedBy'));
+        if (document.querySelector('.open-complete-purchase-modal-btn')) document.querySelector('.open-complete-purchase-modal-btn').addEventListener('click', () => openCompletePurchaseModal(requestId));
 
     } catch (error) {
         console.error("Error opening request details:", error);
@@ -3839,6 +3842,81 @@ const handlePurchaseRequestSubmit = async (e) => {
     }
 };
 
+const openCompletePurchaseModal = (requestId) => {
+    completePurchaseForm.reset();
+    document.getElementById('complete-purchase-request-id').value = requestId;
+    document.getElementById('purchase-upload-progress').textContent = '';
+    
+    // NEW: This line moves the modal to the end of the body, ensuring it's on top
+    document.body.appendChild(completePurchaseModal);
+    
+    completePurchaseModal.classList.remove('hidden');
+};
+
+const closeCompletePurchaseModal = () => {
+    completePurchaseModal.classList.add('hidden');
+};
+
+const handleCompletePurchaseSubmit = async (e) => {
+    e.preventDefault();
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+
+    const requestId = document.getElementById('complete-purchase-request-id').value;
+    const receiptFile = document.getElementById('purchase-receipt-upload').files[0];
+    const updateData = {
+        actualCost: parseFloat(document.getElementById('purchase-actual-cost').value),
+        purchaserNotes: document.getElementById('purchaser-notes').value,
+        status: 'Completed',
+        processedBy: currentUser.email
+    };
+
+    if (!updateData.actualCost || !receiptFile || !updateData.purchaserNotes) {
+        alert("Please fill out all fields and upload a receipt.");
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Save & Complete Purchase';
+        return;
+    }
+
+    const progressIndicator = document.getElementById('purchase-upload-progress');
+    const filePath = `purchase-receipts/${currentUser.uid}/${Date.now()}_${receiptFile.name}`;
+    const storageRef = ref(storage, filePath);
+    const uploadTask = uploadBytesResumable(storageRef, receiptFile);
+
+    uploadTask.on('state_changed',
+        (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            progressIndicator.textContent = `Upload is ${progress.toFixed(0)}% done`;
+        },
+        (error) => {
+            console.error("Upload failed:", error);
+            alert("Receipt upload failed. Please try again.");
+            submitButton.disabled = false;
+            submitButton.innerHTML = 'Save & Complete Purchase';
+        },
+        async () => {
+            try {
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                updateData.purchaseReceiptUrl = downloadURL; // Use the field name from your data structure
+
+                const requestRef = doc(db, 'purchaseRequests', requestId);
+                await updateDoc(requestRef, updateData);
+
+                alert('Purchase request completed successfully!');
+                closeCompletePurchaseModal();
+                closeRequestDetailsModal(); // Close the underlying details modal as well
+                navigateTo('approvals'); // Refresh the approvals list
+            } catch (dbError) {
+                console.error("Error saving purchase completion data:", dbError);
+                alert("Failed to save purchase details.");
+                submitButton.disabled = false;
+                submitButton.innerHTML = 'Save & Complete Purchase';
+            }
+        }
+    );
+};
+
 const openAnnouncementModal = () => {
     announcementForm.reset();
     const deptSelect = document.getElementById('announcement-departments');
@@ -4138,6 +4216,10 @@ announcementModalCancelButton.addEventListener('click', closeAnnouncementModal);
 announcementForm.addEventListener('submit', handleAnnouncementSubmit);
 viewAcknowledgementsModalCloseButton.addEventListener('click', closeViewAcknowledgementsModal);
 viewAcknowledgementsModalCancelButton.addEventListener('click', closeViewAcknowledgementsModal);
+completePurchaseModalCloseButton.addEventListener('click', closeCompletePurchaseModal);
+completePurchaseModalCancelButton.addEventListener('click', closeCompletePurchaseModal);
+completePurchaseForm.addEventListener('submit', handleCompletePurchaseSubmit);
+
 
 document.getElementById('request-type').addEventListener('change', (e) => {
     const selectedOption = e.target.options[e.target.selectedIndex];
