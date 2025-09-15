@@ -442,59 +442,61 @@ const getMyUnacknowledgedAlerts = async () => {
         return await getDocs(q);
     };
 
-    const fetchAndRenderAnnouncements = async () => {
-        const container = document.getElementById('dashboard-announcements-container');
-        if (!container) return;
+// in app.js
+const fetchAndRenderAnnouncements = async () => {
+    const container = document.getElementById('dashboard-announcements-container');
+    if (!container) return;
 
-        try {
-            const announcementsQuery = query(
-                collection(db, 'announcements'),
-                where('targetDepartments', 'array-contains-any', [userData.primaryDepartment, '__ALL__']),
-                orderBy('createdAt', 'desc'),
-                limit(10)
-            );
-            const snapshot = await getDocs(announcementsQuery);
+    try {
+        const announcementsQuery = query(
+            collection(db, 'announcements'),
+            where('targetDepartments', 'array-contains-any', [userData.primaryDepartment, '__ALL__']),
+            orderBy('createdAt', 'desc'),
+            limit(10)
+        );
+        const snapshot = await getDocs(announcementsQuery);
 
-            if (snapshot.empty) {
-                container.innerHTML = '';
-                return;
-            }
-
-            let announcementsHtml = '';
-            const unacknowledgedAnnouncements = [];
-
-            for (const docSnap of snapshot.docs) {
-                const announcement = { id: docSnap.id, ...docSnap.data() };
-                const ackRef = doc(db, 'announcements', announcement.id, 'acknowledgements', currentUser.email);
-                const ackDoc = await getDoc(ackRef);
-                if (!ackDoc.exists()) {
-                    unacknowledgedAnnouncements.push(announcement);
-                }
-            }
-
-            unacknowledgedAnnouncements.forEach(announcement => {
-                announcementsHtml += `
-                    <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
-                        <div class="flex justify-between items-start">
-                             <div>
-                                <p class="font-bold">${announcement.title}</p>
-                                <p class="text-sm mt-1">${announcement.content}</p>
-                                <p class="text-xs text-blue-600 mt-2">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
-                             </div>
-                             <button data-id="${announcement.id}" class="acknowledge-announcement-btn ml-4 px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600 flex-shrink-0">Acknowledge</button>
-                        </div>
-                    </div>
-                `;
-            });
-
-            container.innerHTML = announcementsHtml;
-
-        } catch (error) {
-            console.error("Error fetching announcements:", error);
-            container.innerHTML = '<p class="text-red-500">Could not load announcements.</p>';
+        if (snapshot.empty) {
+            container.innerHTML = '';
+            return;
         }
-    };
 
+        let announcementsHtml = '';
+        const unacknowledgedAnnouncements = [];
+
+        for (const docSnap of snapshot.docs) {
+            const announcement = { id: docSnap.id, ...docSnap.data() };
+            const ackRef = doc(db, 'announcements', announcement.id, 'acknowledgements', currentUser.email);
+            const ackDoc = await getDoc(ackRef);
+            if (!ackDoc.exists()) {
+                unacknowledgedAnnouncements.push(announcement);
+            }
+        }
+
+        unacknowledgedAnnouncements.forEach(announcement => {
+            announcementsHtml += `
+                <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
+                    <div class="flex justify-between items-start space-x-4">
+                         <div class="flex-grow">
+                             <p class="font-bold">${announcement.title}</p>
+                             <p class="text-sm mt-1 break-words">${announcement.content}</p> 
+                             <p class="text-xs text-blue-600 mt-2">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+                         </div>
+                         <div class="flex-shrink-0">
+                            <button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>
+                         </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = announcementsHtml;
+
+    } catch (error) {
+        console.error("Error fetching announcements:", error);
+        container.innerHTML = '<p class="text-red-500">Could not load announcements.</p>';
+    }
+};
 
     try {
         // --- TEMPORARY DIAGNOSTIC CODE ---
