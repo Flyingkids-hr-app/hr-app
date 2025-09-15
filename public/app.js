@@ -477,11 +477,18 @@ const fetchAndRenderAnnouncements = async () => {
 announcementsHtml += `
     <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
         <div class="flex justify-between items-start space-x-4">
-             <div class="flex-grow min-w-0">
-                 <p class="font-bold">${announcement.title}</p>
-                 <p class="text-sm mt-1 break-all whitespace-pre-wrap">${announcement.content}</p> 
-                 <p class="text-xs text-blue-600 mt-2">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
-             </div>
+        <div class="flex-grow min-w-0">
+          <p class="font-bold">${announcement.title}</p>
+          <p class="text-sm mt-1 break-all whitespace-pre-wrap">${announcement.content}</p>
+    
+          ${announcement.videoUrl ? `
+          <a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm">
+            <i class="fas fa-video mr-2"></i>Watch Video
+          </a>
+    ` : ''}
+    
+         <p class="text-xs text-blue-600 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+      </div>
              <div class="flex-shrink-0">
                 <button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>
              </div>
@@ -4044,6 +4051,7 @@ const handleAnnouncementSubmit = async (e) => {
 
     const title = document.getElementById('announcement-title').value.trim();
     const content = document.getElementById('announcement-content').value.trim();
+    const videoUrl = document.getElementById('announcement-video-link').value.trim();
     const targetDepartments = Array.from(document.getElementById('announcement-departments').selectedOptions).map(opt => opt.value);
 
     if (!title || !content || targetDepartments.length === 0) {
@@ -4057,6 +4065,7 @@ const handleAnnouncementSubmit = async (e) => {
         const newAnnouncement = {
             title: title,
             content: content,
+            videoUrl: videoUrl, // Add this line
             targetDepartments: targetDepartments,
             creatorId: currentUser.email,
             creatorName: userData.name,
