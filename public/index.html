@@ -84,7 +84,8 @@
                     </div>
                     <div>
                         <label for="announcement-content" class="block text-sm font-medium text-gray-700">Content</label>
-                        <textarea id="announcement-content" rows="5" required class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="Enter the full announcement message here..."></textarea>
+                        <textarea id="announcement-content" rows="5" required maxlength="2000" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" placeholder="Enter the full announcement message here..."></textarea>
+                        <p id="announcement-char-counter" class="text-xs text-right text-gray-500 mt-1">0 / 2000</p>
                     </div>
                     <div>
                         <label for="announcement-departments" class="block text-sm font-medium text-gray-700">Target Departments</label>

@@ -474,19 +474,19 @@ const fetchAndRenderAnnouncements = async () => {
         }
 
         unacknowledgedAnnouncements.forEach(announcement => {
-            announcementsHtml += `
-                <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
-                    <div class="flex justify-between items-start space-x-4">
-                         <div class="flex-grow">
-                             <p class="font-bold">${announcement.title}</p>
-                             <p class="text-sm mt-1 break-words">${announcement.content}</p> 
-                             <p class="text-xs text-blue-600 mt-2">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
-                         </div>
-                         <div class="flex-shrink-0">
-                            <button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>
-                         </div>
-                    </div>
-                </div>
+announcementsHtml += `
+    <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
+        <div class="flex justify-between items-start space-x-4">
+             <div class="flex-grow min-w-0">
+                 <p class="font-bold">${announcement.title}</p>
+                 <p class="text-sm mt-1 break-all whitespace-pre-wrap">${announcement.content}</p> 
+                 <p class="text-xs text-blue-600 mt-2">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+             </div>
+             <div class="flex-shrink-0">
+                <button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>
+             </div>
+        </div>
+    </div>
             `;
         });
 
@@ -3993,11 +3993,12 @@ const handleCompletePurchaseSubmit = async (e) => {
     );
 };
 
+// in app.js
 const openAnnouncementModal = () => {
     announcementForm.reset();
     const deptSelect = document.getElementById('announcement-departments');
-    
-    const isGlobalAnnouncer = userData.roles.includes('Director') || userData.roles.includes('HR Head');
+
+    const isGlobalAnnouncer = userData.roles.includes('Director');
     const departmentsToShow = isGlobalAnnouncer ? appConfig.availableDepartments : (userData.managedDepartments || []);
 
     let deptOptionsHTML = '';
@@ -4007,11 +4008,32 @@ const openAnnouncementModal = () => {
     departmentsToShow.forEach(dept => {
         deptOptionsHTML += `<option value="${dept}">${dept}</option>`;
     });
+    if (departmentsToShow.length === 0 && !isGlobalAnnouncer) {
+        deptOptionsHTML = '<option value="" disabled>You are not assigned to manage any departments.</option>';
+    }
     deptSelect.innerHTML = deptOptionsHTML;
+
+    // --- CORRECTED AND SAFE-GUARDED CODE BLOCK ---
+    const contentInput = document.getElementById('announcement-content');
+    const charCounter = document.getElementById('announcement-char-counter');
+
+    // Safety Check: Only run this logic if both the input and counter elements exist.
+    if (contentInput && charCounter) {
+        const maxLength = contentInput.getAttribute('maxlength');
+        
+        // Reset counter text when modal is opened
+        charCounter.textContent = `${contentInput.value.length} / ${maxLength}`;
+
+        // Add a listener to update the counter as the user types
+        contentInput.addEventListener('input', () => {
+            const currentLength = contentInput.value.length;
+            charCounter.textContent = `${currentLength} / ${maxLength}`;
+        });
+    }
+    // --- END OF CORRECTED BLOCK ---
 
     announcementModal.classList.remove('hidden');
 };
-
 const closeAnnouncementModal = () => announcementModal.classList.add('hidden');
 
 const handleAnnouncementSubmit = async (e) => {
