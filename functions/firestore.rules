@@ -109,24 +109,38 @@ service cloud.firestore {
       allow update: if (hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc()) || (isOwnerOfDoc() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']));
     }
     
+// in firestore.rules
+
     match /announcements/{announcementId} {
       allow read, list: if isSignedIn();
-      allow create: if hasAnyRole(['Director']) ||
+
+      // --- START: CORRECTED CREATE RULE ---
+      allow create: if isSignedIn() &&
         (
-          'managedDepartments' in request.auth.token &&
-          request.resource.data.targetDepartments.size() > 0 &&
-          request.resource.data.targetDepartments.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
+          // Rule 1: Allow if user is a Director.
+          hasAnyRole(['Director']) ||
+          // Rule 2: OR allow if user is a Scoped Announcer.
+          (
+            // The user must be a manager of some kind.
+            hasAnyRole(['DepartmentManager', 'RegionalDirector', 'HR', 'HR Head', 'Finance', 'Purchaser', 'Admin', 'RespiteManager']) &&
+            // CORRECTED LINE: This now correctly checks if the '__ALL__' value is NOT in the list.
+            !request.resource.data.targetDepartments.hasAny(['__ALL__']) &&
+            // And all departments they are trying to send to must exist in their list of managed departments.
+            request.resource.data.targetDepartments.removeAll(request.auth.token.managedDepartments.keys()).size() == 0
+          )
         );
+      // --- END: CORRECTED CREATE RULE ---
+
       allow update, delete: if isSignedIn() && (resource.data.creatorId == request.auth.token.email || hasAnyRole(['Director']));
 
       match /acknowledgements/{userEmail} {
-        allow get: if isSignedIn() && request.auth.token.email == userEmail;
-        allow list: if hasAnyRole(['Director']);
+        allow get: if isSignedIn();
+        allow list: if hasAnyRole(['Director', 'HR', 'HR Head', 'DepartmentManager', 'RegionalDirector']);
         allow create: if isSignedIn() && request.auth.token.email == userEmail;
         allow update, delete: if false;
       }
     }
-    
+
     match /userAlerts/{alertId} {
       // A user can read or query for their own alerts.
       allow read: if isSignedIn() && request.auth.token.email == resource.data.userId;

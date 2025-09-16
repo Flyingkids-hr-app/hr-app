@@ -477,18 +477,23 @@ const fetchAndRenderAnnouncements = async () => {
 announcementsHtml += `
     <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
         <div class="flex justify-between items-start space-x-4">
-        <div class="flex-grow min-w-0">
-          <p class="font-bold">${announcement.title}</p>
-          <p class="text-sm mt-1 break-all whitespace-pre-wrap">${announcement.content}</p>
+<div class="flex-grow min-w-0">
+    <p class="font-bold">${announcement.title}</p>
     
-          ${announcement.videoUrl ? `
-          <a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm">
+    ${announcement.imageUrl ? `
+        <img src="${announcement.imageUrl}" alt="Announcement Image" class="mt-3 rounded-lg max-h-60 w-auto border">
+    ` : ''}
+
+    <p class="text-sm mt-3 break-all whitespace-pre-wrap">${announcement.content}</p>
+    
+    ${announcement.videoUrl ? `
+        <a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm">
             <i class="fas fa-video mr-2"></i>Watch Video
-          </a>
+        </a>
     ` : ''}
     
-         <p class="text-xs text-blue-600 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
-      </div>
+    <p class="text-xs text-blue-600 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+</div>
              <div class="flex-shrink-0">
                 <button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>
              </div>
@@ -4043,43 +4048,82 @@ const openAnnouncementModal = () => {
 };
 const closeAnnouncementModal = () => announcementModal.classList.add('hidden');
 
+// in app.js
 const handleAnnouncementSubmit = async (e) => {
     e.preventDefault();
     const submitButton = e.target.querySelector('button[type="submit"]');
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Posting...';
 
+    // 1. Get all form values, including the file
     const title = document.getElementById('announcement-title').value.trim();
     const content = document.getElementById('announcement-content').value.trim();
     const videoUrl = document.getElementById('announcement-video-link').value.trim();
+    const imageFile = document.getElementById('announcement-image').files[0];
     const targetDepartments = Array.from(document.getElementById('announcement-departments').selectedOptions).map(opt => opt.value);
 
     if (!title || !content || targetDepartments.length === 0) {
-        alert("Please fill out all fields.");
+        alert("Please fill out all required fields.");
         submitButton.disabled = false;
         submitButton.textContent = 'Post Announcement';
         return;
     }
 
-    try {
-        const newAnnouncement = {
-            title: title,
-            content: content,
-            videoUrl: videoUrl, // Add this line
-            targetDepartments: targetDepartments,
-            creatorId: currentUser.email,
-            creatorName: userData.name,
-            createdAt: serverTimestamp()
-        };
-        await addDoc(collection(db, 'announcements'), newAnnouncement);
-        alert('Announcement posted successfully!');
-        closeAnnouncementModal();
-        navigateTo('dashboard'); // Refresh dashboard to see the new announcement
-    } catch (error) {
-        console.error("Error posting announcement:", error);
-        alert(`Failed to post announcement: ${error.message}`);
-        submitButton.disabled = false;
-        submitButton.textContent = 'Post Announcement';
+    const newAnnouncement = {
+        title: title,
+        content: content,
+        videoUrl: videoUrl || null,
+        imageUrl: null, // Initialize imageUrl as null
+        targetDepartments: targetDepartments,
+        creatorId: currentUser.email,
+        creatorName: userData.name,
+        createdAt: serverTimestamp()
+    };
+    
+    // 2. Define a helper function to save the data to Firestore
+    const saveAnnouncementToFirestore = async () => {
+        try {
+            await addDoc(collection(db, 'announcements'), newAnnouncement);
+            alert('Announcement posted successfully!');
+            closeAnnouncementModal();
+            navigateTo('dashboard');
+        } catch (error) {
+            console.error("Error posting announcement:", error);
+            alert(`Failed to post announcement: ${error.message}`);
+            submitButton.disabled = false;
+            submitButton.textContent = 'Post Announcement';
+        }
+    };
+
+    // 3. Check if an image was selected for upload
+    if (imageFile) {
+        const progressIndicator = document.getElementById('announcement-upload-progress');
+        const storagePath = `announcement-images/${Date.now()}-${imageFile.name}`;
+        const storageRef = ref(storage, storagePath);
+        const uploadTask = uploadBytesResumable(storageRef, imageFile);
+
+        // Listen for state changes, errors, and completion of the upload.
+        uploadTask.on('state_changed',
+            (snapshot) => {
+                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                progressIndicator.textContent = `Image Upload: ${progress.toFixed(0)}% done`;
+            },
+            (error) => {
+                console.error("Image upload failed:", error);
+                alert("Image upload failed. Please try again.");
+                submitButton.disabled = false;
+                submitButton.textContent = 'Post Announcement';
+            },
+            async () => {
+                // Upload completed successfully, now get the download URL
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                newAnnouncement.imageUrl = downloadURL; // Add the URL to our object
+                await saveAnnouncementToFirestore(); // Save everything to Firestore
+            }
+        );
+    } else {
+        // If no image, save the announcement data directly
+        await saveAnnouncementToFirestore();
     }
 };
 
