@@ -3860,15 +3860,16 @@ const handleSupportSubmit = async (e) => {
     }
     const assignee = allUsers.find(user => user.email === assigneeEmail);
     const newSupportRequest = {
-        requesterId: currentUser.email,
-        requesterName: userData.name,
-        assigneeId: assignee.email,
-        assigneeName: assignee.name,
-        subject: subject,
-        description: description,
-        status: 'Open',
-        createdAt: serverTimestamp()
-    };
+      requesterId: currentUser.email,
+      requesterName: userData.name,
+      department: userData.primaryDepartment, // <-- ADD THIS LINE
+      assigneeId: assignee.email,
+      assigneeName: assignee.name,
+      subject: subject,
+      description: description,
+      status: 'Open',
+      createdAt: serverTimestamp()
+  };
     try {
         await addDoc(collection(db, 'supportRequests'), newSupportRequest);
         alert('Support request submitted successfully!');

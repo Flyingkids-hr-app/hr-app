@@ -88,12 +88,29 @@ service cloud.firestore {
       allow create: if isSignedIn() && isCreatingForSelf();
     }
 
-    match /supportRequests/{docId} {
-      allow create: if isSignedIn() && request.auth.token.email == request.resource.data.requesterId;
-      allow get, update, delete: if isSignedIn() && (request.auth.token.email == resource.data.requesterId || hasAnyRole(['Director', 'IT']));
-      allow list: if isSignedIn();
-    }
+// in firestore.rules
+  match /supportRequests/{docId} {
+    allow create: if isSignedIn() && request.auth.token.email == request.resource.data.requesterId;
 
+    // --- START: NEW COMPREHENSIVE RULE ---
+    allow get, update, delete: if isSignedIn() && 
+      (
+        // The creator can access it
+        request.auth.token.email == resource.data.requesterId ||
+        // The person it is assigned to can access it
+        request.auth.token.email == resource.data.assigneeId ||
+        // Director and IT have global access
+        hasAnyRole(['Director', 'IT']) ||
+        // ANY manager of the requester's department can access it
+        (
+          'managedDepartments' in request.auth.token &&
+          request.auth.token.managedDepartments[resource.data.department] == true
+        )
+      );
+    // --- END: NEW COMPREHENSIVE RULE ---
+
+    allow list: if isSignedIn();
+  }
     match /attendance/{docId} {
       allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
       allow list: if isSignedIn();
