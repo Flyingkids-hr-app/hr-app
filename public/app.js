@@ -107,6 +107,7 @@ let myJobs = []; // Store the jobs for the current user
 const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-house', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
     { id: 'my-documents', label: 'My Documents', icon: 'fa-solid fa-folder-open', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
+    { id: 'announcements-history', label: 'Announcements', icon: 'fa-solid fa-bullhorn', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
     { id: 'attendance', label: 'Attendance', icon: 'fa-solid fa-clock', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'HR Head'] },
     { id: 'leave-ot', label: 'Leave / OT', icon: 'fa-solid fa-plane-departure', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'RespiteManager', 'HR Head'] },
     { id: 'claims', label: 'Claims', icon: 'fa-solid fa-file-invoice-dollar', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'Finance'] },
@@ -283,13 +284,13 @@ const handleAcknowledgeException = async (e) => {
     }
 };
 
+// in app.js
 const handleAcknowledgeAnnouncement = async (e) => {
     const button = e.currentTarget;
     const announcementId = button.dataset.id;
-    const banner = document.getElementById(`announcement-${announcementId}`);
-
+    
     button.disabled = true;
-    button.textContent = 'Acknowledging...';
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
     try {
         const ackRef = doc(db, 'announcements', announcementId, 'acknowledgements', currentUser.email);
@@ -298,15 +299,27 @@ const handleAcknowledgeAnnouncement = async (e) => {
             userName: userData.name
         });
 
+        // --- START: NEW TRANSFORMATION LOGIC ---
+        // Instead of removing the banner, we find it and change its appearance.
+        const banner = document.getElementById(`announcement-${announcementId}`);
         if (banner) {
-            banner.remove();
+            const buttonContainer = button.parentElement; // The button's parent div
+            if(buttonContainer){
+                // Replace the button with a static "Acknowledged" status
+                buttonContainer.innerHTML = `<span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check mr-2"></i>Acknowledged</span>`;
+            }
+
+            // De-emphasize the banner style
+            banner.classList.remove('bg-blue-100', 'border-blue-500');
+            banner.classList.add('bg-gray-100', 'border-gray-300');
         }
+        // --- END: NEW TRANSFORMATION LOGIC ---
 
     } catch (error) {
         console.error("Error acknowledging announcement:", error);
         alert("Failed to acknowledge the announcement. Please try again.");
         button.disabled = false;
-        button.textContent = 'Acknowledge';
+        button.innerHTML = 'Acknowledge';
     }
 };
 
@@ -410,6 +423,8 @@ const getFinanceClaims = async () => {
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => doc.data());
 };
+
+
 
 const getPurchaserApprovals = async () => {
     const purchaseRef = collection(db, 'purchaseRequests');
@@ -637,6 +652,86 @@ console.log("--- DASHBOARD DIAGNOSTIC COMPLETE ---");
         contentArea.innerHTML = `<div class="p-6 bg-red-100 text-red-700 rounded-lg">Failed to load dashboard. ${error.message}</div>`;
     }
 };
+
+// in app.js
+const renderAnnouncementsPage = async () => {
+    pageTitle.textContent = 'All Announcements';
+    contentArea.innerHTML = `<div class="p-6">Loading all announcements...</div>`;
+
+    try {
+        // 1. Get all announcements relevant to the user, with no limit
+        const announcementsQuery = query(
+            collection(db, 'announcements'),
+            where('targetDepartments', 'array-contains-any', [userData.primaryDepartment, '__ALL__']),
+            orderBy('createdAt', 'desc')
+        );
+        const snapshot = await getDocs(announcementsQuery);
+
+        if (snapshot.empty) {
+            contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">No announcements found for you.</div>`;
+            return;
+        }
+
+        // 2. Prepare HTML and find which ones are already acknowledged
+        let announcementsHtml = '<div class="space-y-4">';
+        const acknowledgementChecks = [];
+        const announcements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Create a list of promises to check the acknowledgement status for each announcement
+        for (const announcement of announcements) {
+            const ackRef = doc(db, 'announcements', announcement.id, 'acknowledgements', currentUser.email);
+            acknowledgementChecks.push(getDoc(ackRef));
+        }
+        
+        const acknowledgementSnapshots = await Promise.all(acknowledgementChecks);
+        const acknowledgedIds = new Set();
+        acknowledgementSnapshots.forEach(ackDoc => {
+            if (ackDoc.exists()) {
+                // The document ID is the announcementId
+                acknowledgedIds.add(ackDoc.ref.parent.parent.id);
+            }
+        });
+
+        // 3. Build the final HTML for each announcement
+        announcements.forEach(announcement => {
+            const isAcknowledged = acknowledgedIds.has(announcement.id);
+            const bannerStyle = isAcknowledged 
+                ? 'bg-gray-100 border-gray-300' 
+                : 'bg-blue-100 border-blue-500';
+            
+            const buttonHtml = isAcknowledged
+                ? `<span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800"><i class="fas fa-check mr-2"></i>Acknowledged</span>`
+                : `<button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>`;
+
+            announcementsHtml += `
+                <div id="announcement-${announcement.id}" class="bg-white p-4 rounded-lg shadow border-l-4 ${bannerStyle}">
+                    <div class="flex justify-between items-start space-x-4">
+                        <div class="flex-grow min-w-0">
+                            <p class="font-bold text-gray-800">${announcement.title}</p>
+                            ${announcement.imageUrl ? `<img src="${announcement.imageUrl}" alt="Announcement Image" class="mt-3 rounded-lg max-h-60 w-auto border">` : ''}
+                            <p class="text-sm mt-3 break-all whitespace-pre-wrap text-gray-700">${announcement.content}</p>
+                            ${announcement.videoUrl ? `<a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm"><i class="fas fa-video mr-2"></i>Watch Video</a>` : ''}
+                            <p class="text-xs text-gray-500 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+                        </div>
+                        <div class="flex-shrink-0">${buttonHtml}</div>
+                    </div>
+                </div>
+            `;
+        });
+        announcementsHtml += '</div>';
+        contentArea.innerHTML = announcementsHtml;
+
+        // 4. Attach event listeners to any unacknowledged announcements
+        document.querySelectorAll('.acknowledge-announcement-btn').forEach(btn => {
+            btn.addEventListener('click', handleAcknowledgeAnnouncement);
+        });
+
+    } catch (error) {
+        console.error("Error fetching announcements page:", error);
+        contentArea.innerHTML = '<p class="text-red-500">Could not load announcements.</p>';
+    }
+};
+
 const renderMyDocuments = async () => {
     pageTitle.textContent = 'My Documents';
     contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow">Loading documents...</div>`;
@@ -4385,6 +4480,7 @@ const navigateTo = (pageId) => {
     const pages = {
         'dashboard': renderDashboard, 
         'my-documents': renderMyDocuments,
+        'announcements-history': renderAnnouncementsPage, // <-- ADD THIS LINE
         'attendance': renderAttendance, 
         'leave-ot': renderLeaveOT,
         'claims': renderClaims, 
