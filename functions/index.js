@@ -216,6 +216,9 @@ if (!isHr && !isHrHead && !isRegionalDirector) {
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: getLiveTeamStatus
 // =================================================================================
+// in functions/index.js
+
+// Replace the entire old getLiveTeamStatus function with this one
 exports.getLiveTeamStatus = onCall({
     timeoutSeconds: 60,
 }, async (request) => {
@@ -226,16 +229,20 @@ exports.getLiveTeamStatus = onCall({
     const managerEmail = request.auth.token.email;
     const managerRoles = request.auth.token.roles || [];
 
+    // --- START: CORRECTED PERMISSION CHECK ---
+    // This list now correctly includes all roles that should see this report.
+    // I've also included "HRHead" without a space just in case of data inconsistency.
     const isAuthorized = managerRoles.some(role =>
-        ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'HR Head'].includes(role)
+        ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'HR Head', 'HRHead'].includes(role)
     );
 
     if (!isAuthorized) {
         throw new HttpsError('permission-denied', 'You do not have permission to perform this action.');
     }
+    // --- END: CORRECTED PERMISSION CHECK ---
 
     try {
-        // 2. Get Manager's Data and Current Time Info
+        // 2. Get Manager's Data and Current Time Info (No changes to the logic below)
         const managerDoc = await db.collection('users').doc(managerEmail).get();
         if (!managerDoc.exists) {
             throw new HttpsError("not-found", "Manager profile not found.");
@@ -247,7 +254,6 @@ exports.getLiveTeamStatus = onCall({
         const todayStr = now.format('YYYY-MM-DD');
         const dayOfWeek = now.format('dddd');
 
-        // --- NEW LOGIC START: CHECK FOR HOLIDAYS FIRST ---
         const holidayRef = db.collection('companyCalendar').doc(todayStr);
         const holidayDoc = await holidayRef.get();
         let holidayDepts = [];
@@ -258,9 +264,7 @@ exports.getLiveTeamStatus = onCall({
             holidayDepts = holidayData.appliesTo || [];
             holidayDescription = holidayData.description || 'Holiday';
         }
-        // --- NEW LOGIC END ---
-
-        // 3. Fetch all necessary data in parallel
+        
         const teamMembersQuery = db.collection('users')
             .where('status', '==', 'active')
             .where('primaryDepartment', 'in', managedDepts.length > 0 ? managedDepts : ['null'])
@@ -283,10 +287,9 @@ exports.getLiveTeamStatus = onCall({
         ]);
 
         if (teamMembersSnap.empty) {
-            return []; // No team members to report on
+            return [];
         }
 
-        // 4. Process data into easy-to-use Maps
         const attendanceMap = new Map(attendanceSnap.docs.map(doc => [doc.data().userId, doc.data()]));
         const leaveMap = new Map();
         leaveSnap.docs.forEach(doc => {
@@ -298,47 +301,33 @@ exports.getLiveTeamStatus = onCall({
             }
         });
 
-        // 5. Determine status for each team member
         const teamStatusList = teamMembersSnap.docs.map(doc => {
             const user = doc.data();
             const schedule = user.workSchedule ? user.workSchedule[dayOfWeek] : null;
-
-            // --- NEW CHECK ---
-            // Check 1: Is today a designated non-working day for this user?
             if (holidayDepts.includes(user.primaryDepartment) || holidayDepts.includes('__ALL__')) {
                 return { name: user.name, department: user.primaryDepartment, status: 'On Holiday', details: holidayDescription };
             }
-            // --- END NEW CHECK ---
-
-            // Check 2: Is the user on leave?
             if (leaveMap.has(user.email)) {
                 return { name: user.name, department: user.primaryDepartment, status: 'On Leave', details: leaveMap.get(user.email).type };
             }
-
-            // Check 3: Is the user scheduled to work today?
             if (!schedule || !schedule.active) {
                 return { name: user.name, department: user.primaryDepartment, status: 'Not Scheduled', details: 'Not scheduled to work today.' };
             }
-
-            // Check 4: Has the user checked in?
             const attendanceRecord = attendanceMap.get(user.email);
             if (!attendanceRecord) {
                 const expectedCheckInTime = moment.tz(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
                 if (now.isAfter(expectedCheckInTime)) {
-                     return { name: user.name, department: user.primaryDepartment, status: 'Absent', details: `Was expected at ${schedule.checkIn}` };
+                    return { name: user.name, department: user.primaryDepartment, status: 'Absent', details: `Was expected at ${schedule.checkIn}` };
                 } else {
-                     return { name: user.name, department: user.primaryDepartment, status: 'Pending Check-in', details: `Scheduled for ${schedule.checkIn}` };
+                    return { name: user.name, department: user.primaryDepartment, status: 'Pending Check-in', details: `Scheduled for ${schedule.checkIn}` };
                 }
             }
-
-            // Check 5: If checked in, were they late?
             const checkInTime = moment(attendanceRecord.checkInTime.toDate()).tz('Asia/Kuala_Lumpur');
             const expectedCheckInTime = moment.tz(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
             if (checkInTime.isAfter(expectedCheckInTime)) {
                 return { name: user.name, department: user.primaryDepartment, status: 'Late', details: `Checked in at ${checkInTime.format('HH:mm')}` };
             }
             
-            // If none of the above, they are present
             return { name: user.name, department: user.primaryDepartment, status: 'Present', details: `Checked in at ${checkInTime.format('HH:mm')}` };
         });
 
@@ -349,7 +338,6 @@ exports.getLiveTeamStatus = onCall({
         throw new HttpsError("internal", "An unexpected error occurred.", error);
     }
 });
-
 
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: correctAttendanceRecord (NEW)

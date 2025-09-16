@@ -133,9 +133,10 @@ service cloud.firestore {
 
       allow update, delete: if isSignedIn() && (resource.data.creatorId == request.auth.token.email || hasAnyRole(['Director']));
 
-      match /acknowledgements/{userEmail} {
-        allow get: if isSignedIn();
-        allow list: if hasAnyRole(['Director', 'HR', 'HR Head', 'DepartmentManager', 'RegionalDirector']);
+match /acknowledgements/{userEmail} {
+        allow get: if isSignedIn() && request.auth.token.email == userEmail;
+        // CORRECTED RULE: Added Finance and Purchaser to the list of roles.
+        allow list: if hasAnyRole(['Director', 'HR', 'HR Head', 'DepartmentManager', 'RegionalDirector', 'Admin', 'Finance', 'Purchaser']);
         allow create: if isSignedIn() && request.auth.token.email == userEmail;
         allow update, delete: if false;
       }

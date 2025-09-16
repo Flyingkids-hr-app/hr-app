@@ -103,17 +103,19 @@ let myJobs = []; // Store the jobs for the current user
 
 // --- Navigation Items ---
 // Replace the entire navItems array with this
+// in app.js
 const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-house', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
-    { id: 'my-documents', label: 'My Documents', icon: 'fa-solid fa-folder-open', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
-    { id: 'attendance', label: 'Attendance', icon: 'fa-solid fa-clock', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR'] },
-    { id: 'leave-ot', label: 'Leave / OT', icon: 'fa-solid fa-plane-departure', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'RespiteManager'] },
+    { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-house', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
+    { id: 'my-documents', label: 'My Documents', icon: 'fa-solid fa-folder-open', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
+    { id: 'attendance', label: 'Attendance', icon: 'fa-solid fa-clock', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'HR Head'] },
+    { id: 'leave-ot', label: 'Leave / OT', icon: 'fa-solid fa-plane-departure', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'RespiteManager', 'HR Head'] },
     { id: 'claims', label: 'Claims', icon: 'fa-solid fa-file-invoice-dollar', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'Finance'] },
     { id: 'purchasing', label: 'Purchasing', icon: 'fa-solid fa-cart-shopping', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'Purchaser'] },
-    { id: 'my-job', label: 'My Job', icon: 'fa-solid fa-list-check', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
-    { id: 'support', label: 'Support Requests', icon: 'fa-solid fa-headset', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
-    { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser'] },
-    { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'Purchaser'] },
+    { id: 'my-job', label: 'My Job', icon: 'fa-solid fa-list-check', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
+    { id: 'support', label: 'Support Requests', icon: 'fa-solid fa-headset', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
+    { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'HR Head'] },
+    // MODIFIED LINE: Added 'HR Head', 'Admin', and 'IT' to this list
+    { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'Purchaser', 'HR Head', 'Admin', 'IT'] },
     { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR', 'HR Head', 'RegionalDirector'] },
     { id: 'system-health', label: 'System Health', icon: 'fa-solid fa-heart-pulse', requiredRoles: ['Director'] },
     { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director', 'RegionalDirector'] },
@@ -2061,19 +2063,51 @@ const renderExceptionsReport = () => {
 };
 
 
+// in app.js
 const renderSupportTicketsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
     let allTickets = [];
-    let dataForExport = []; // Variable to hold cleaned data for CSV export
+    let dataForExport = [];
 
     const fetchDataAndRender = async () => {
-        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching all support tickets...</p>`;
+        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching support tickets...</p>`;
         try {
+            const isDirector = userData.roles.includes('Director');
+            const managedDepartments = userData.managedDepartments || [];
+
+            // Fetch all tickets if they haven't been fetched yet
             if (allTickets.length === 0) {
-                const querySnapshot = await getDocs(query(collection(db, 'supportRequests'), orderBy('createdAt', 'desc')));
+                let ticketsQuery;
+                if (isDirector) {
+                    ticketsQuery = query(collection(db, 'supportRequests'), orderBy('createdAt', 'desc'));
+                } else {
+                    if (managedDepartments.length === 0) {
+                        dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to manage any departments.</p>`;
+                        return;
+                    }
+                    // For managers, first get users in their departments
+                    const usersInDeptsQuery = query(collection(db, 'users'), where('primaryDepartment', 'in', managedDepartments));
+                    const usersSnapshot = await getDocs(usersInDeptsQuery);
+                    const userEmails = usersSnapshot.docs.map(doc => doc.id);
+                    
+                    if (userEmails.length === 0) {
+                        dataContainer.innerHTML = `<p class="text-center p-4">No users found in your managed departments.</p>`;
+                        return;
+                    }
+                    // Then query for tickets requested by those users
+                    // NOTE: Firestore 'in' queries are limited to 30 items.
+                    if (userEmails.length > 30) {
+                         console.warn("Querying for more than 30 users in support tickets. This may lead to incomplete results.");
+                    }
+                    ticketsQuery = query(collection(db, 'supportRequests'), where('requesterId', 'in', userEmails), orderBy('createdAt', 'desc'));
+                }
+                
+                const querySnapshot = await getDocs(ticketsQuery);
                 allTickets = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             }
+
+            // Client-side filtering remains the same
             const status = document.getElementById('report-status')?.value;
             const assigneeId = document.getElementById('report-assignee')?.value;
             const startDate = document.getElementById('report-start-date')?.value;
@@ -2085,7 +2119,6 @@ const renderSupportTicketsReport = () => {
             if (startDate) { const start = new Date(startDate); filteredTickets = filteredTickets.filter(t => t.createdAt.toDate() >= start); }
             if (endDate) { const end = new Date(endDate); end.setHours(23, 59, 59, 999); filteredTickets = filteredTickets.filter(t => t.createdAt.toDate() <= end); }
 
-            // Prepare data for CSV export
             dataForExport = filteredTickets.map(ticket => ({
                 CreatedOn: formatDate(ticket.createdAt),
                 Subject: ticket.subject,
@@ -2112,6 +2145,7 @@ const renderSupportTicketsReport = () => {
         }
     };
 
+    // This part remains mostly the same, as the filters are still useful
     const renderFilters = async () => {
         try {
             const usersSnapshot = await getDocs(query(collection(db, 'users'), orderBy('name')));
@@ -2133,10 +2167,10 @@ const renderSupportTicketsReport = () => {
             filtersContainer.innerHTML = `<p class="text-red-600">Could not load filters.</p>`;
         }
     };
+    
     renderFilters();
     fetchDataAndRender();
 };
-
 
 const renderLeaveReport = () => {
     const filtersContainer = document.getElementById('report-filters');
@@ -2599,6 +2633,9 @@ const renderAttendanceReport = () => {
     fetchData();
 };
 
+// in app.js
+// in app.js
+// in app.js
 const renderAnnouncementsReport = async () => {
     const contentContainer = document.getElementById('report-content-container');
     contentContainer.innerHTML = `<div id="report-filters"></div><div id="report-data-container"></div>`;
@@ -2606,14 +2643,33 @@ const renderAnnouncementsReport = async () => {
     const dataContainer = document.getElementById('report-data-container');
     let currentAnnouncementsData = [];
 
+    const isDirector = userData.roles.includes('Director');
+    const managedDepartments = userData.managedDepartments || [];
+    const isMultiDeptManager = managedDepartments.length > 1;
+
     const fetchData = async () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching announcements...</p>`;
         
-        let q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-        
-        const department = document.getElementById('report-department')?.value;
-        if (department) {
-            q = query(q, where('targetDepartments', 'array-contains', department));
+        let q;
+        const departmentFilter = document.getElementById('report-department')?.value;
+
+        if (isDirector) {
+            q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
+            if (departmentFilter) {
+                q = query(q, where('targetDepartments', 'array-contains', departmentFilter));
+            }
+        } else {
+            // Non-directors see announcements targeted at the departments they manage.
+            if (managedDepartments.length === 0) {
+                 dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to manage any departments.</p>`;
+                 return;
+            }
+            // Base query for departments they manage.
+            q = query(collection(db, 'announcements'), where('targetDepartments', 'array-contains-any', managedDepartments), orderBy('createdAt', 'desc'));
+            // Further filter if a specific department is selected from the dropdown.
+            if (departmentFilter) {
+                q = query(collection(db, 'announcements'), where('targetDepartments', 'array-contains', departmentFilter), orderBy('createdAt', 'desc'));
+            }
         }
 
         try {
@@ -2624,17 +2680,20 @@ const renderAnnouncementsReport = async () => {
             if (currentAnnouncementsData.length === 0) {
                 tableHTML += `<tr><td colspan="5" class="p-4 text-center text-gray-500">No announcements found.</td></tr>`;
             } else {
-                currentAnnouncementsData.forEach(ann => {
-                    const depts = ann.targetDepartments.includes('__ALL__') ? 'All Departments' : ann.targetDepartments.join(', ');
-                    tableHTML += `<tr>
-                        <td class="px-6 py-4 whitespace-nowrap">${formatDate(ann.createdAt)}</td>
-                        <td class="px-6 py-4">${ann.title}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${ann.creatorName}</td>
-                        <td class="px-6 py-4">${depts}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <button class="view-acknowledgements-btn text-indigo-600 hover:text-indigo-900" data-id="${ann.id}">View Status</button>
-                        </td>
-                    </tr>`;
+                 currentAnnouncementsData.forEach(ann => {
+                    // Only show announcements relevant to the manager's scope
+                    if (isDirector || ann.targetDepartments.some(d => managedDepartments.includes(d)) || ann.targetDepartments.includes('__ALL__')) {
+                        const depts = ann.targetDepartments.includes('__ALL__') ? 'All Departments' : ann.targetDepartments.join(', ');
+                        tableHTML += `<tr>
+                            <td class="px-6 py-4 whitespace-nowrap">${formatDate(ann.createdAt)}</td>
+                            <td class="px-6 py-4">${ann.title}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${ann.creatorName}</td>
+                            <td class="px-6 py-4">${depts}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button class="view-acknowledgements-btn text-indigo-600 hover:text-indigo-900" data-id="${ann.id}">View Status</button>
+                            </td>
+                        </tr>`;
+                    }
                 });
             }
             tableHTML += `</tbody></table></div>`;
@@ -2643,28 +2702,31 @@ const renderAnnouncementsReport = async () => {
             document.querySelectorAll('.view-acknowledgements-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => openViewAcknowledgementsModal(e.currentTarget.dataset.id));
             });
-
         } catch (error) {
             console.error("Error fetching announcements report:", error);
-            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data. A Firestore index may be required.</p>`;
+            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data.</p>`;
         }
     };
 
-    let deptOptions = appConfig.availableDepartments.map(d => `<option value="${d}">${d}</option>`).join('');
-    filtersContainer.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div>
-                <label for="report-department" class="block text-sm font-medium text-gray-700">Filter by Department</label>
-                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
-                    <option value="">All Departments</option>
-                    ${deptOptions}
-                </select>
-            </div>
-            <div class="flex items-end"><button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filter</button></div>
-        </div>`;
+    if (isDirector || isMultiDeptManager) {
+        const deptsForFilter = isDirector ? appConfig.availableDepartments : managedDepartments;
+        let deptOptions = deptsForFilter.map(d => `<option value="${d}">${d}</option>`).join('');
+        
+        filtersContainer.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                    <label for="report-department" class="block text-sm font-medium text-gray-700">Filter by Department</label>
+                    <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                        <option value="">All My Departments</option>
+                        ${deptOptions}
+                    </select>
+                </div>
+                <div class="flex items-end"><button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filter</button></div>
+            </div>`;
+        document.getElementById('apply-filters-btn').addEventListener('click', fetchData);
+    }
     
-    document.getElementById('apply-filters-btn').addEventListener('click', fetchData);
-    fetchData(); // Initial load
+    fetchData();
 };
 
 // --- And then REPLACE the existing loadReport and renderReports functions ---
@@ -2705,45 +2767,69 @@ const loadReport = (reportType) => {
     }
 };
 
+// in app.js
 const renderReports = async () => {
     pageTitle.textContent = 'Reports';
 
-    // --- NEW LOGIC: Check user roles to determine which tabs to show ---
-    const isDirector = userData.roles.includes('Director');
-    const isFinance = userData.roles.includes('Finance');
-    const isHR = userData.roles.includes('HR');
-    // A "Purchaser Only" view is for a user who is a Purchaser but not also a Director, HR, or Finance user.
-    const isPurchaserOnlyView = userData.roles.includes('Purchaser') && !isDirector && !isHR && !isFinance;
+    // --- START: NEW ROLE-BASED TAB PERMISSION LOGIC ---
+    const allTabs = [
+        { id: 'livestatus', label: 'Live Status' },
+        { id: 'payroll', label: 'Payroll Summary' },
+        { id: 'exceptions', label: 'Attendance Exceptions' },
+        { id: 'support', label: 'Support Tickets' },
+        { id: 'leave', label: 'Leave / OT' },
+        { id: 'claims', label: 'Claims' },
+        { id: 'purchasing', label: 'Purchasing' },
+        { id: 'attendance', label: 'Attendance History' },
+        { id: 'announcements', label: 'Announcements' }
+    ];
 
-    let tabsHTML = '';
-    let defaultReport = 'livestatus';
+    const userRoles = new Set(userData.roles);
+    const visibleTabIds = new Set();
 
-    if (isPurchaserOnlyView) {
-        // If it's a Purchaser-only view, just show the one tab, pre-selected.
-        tabsHTML = `<button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600" data-report="purchasing">Purchasing</button>`;
-        defaultReport = 'purchasing';
-    } else {
-        // Otherwise, build the full list of tabs for other managers/admins
-        const fullTabList = [
-            { id: 'livestatus', label: 'Live Status' },
-            { id: 'payroll', label: 'Payroll Summary' },
-            { id: 'exceptions', label: 'Attendance Exceptions' },
-            { id: 'support', label: 'Support Tickets' },
-            { id: 'leave', label: 'Leave / OT' },
-            { id: 'claims', label: 'Claims' },
-            { id: 'purchasing', label: 'Purchasing' },
-            { id: 'attendance', label: 'Attendance History' },
-            { id: 'announcements', label: 'Announcements', directorOnly: true }
-        ];
-
-        tabsHTML = fullTabList.map((tab, index) => {
-            if (tab.directorOnly && !isDirector) return ''; // Skip director-only tabs
-            const isActive = index === 0; // Make the first tab active
-            const activeClasses = 'border-indigo-500 text-indigo-600';
-            const inactiveClasses = 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300';
-            return `<button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${isActive ? activeClasses : inactiveClasses}" data-report="${tab.id}">${tab.label}</button>`;
-        }).join('');
+    // 1. Grant permissions for roles that see all or most tabs
+    if (userRoles.has('Director') || userRoles.has('RegionalDirector') || userRoles.has('DepartmentManager')) {
+        allTabs.forEach(tab => visibleTabIds.add(tab.id));
     }
+    if (userRoles.has('HR') || userRoles.has('HR Head')) {
+        // HR and HR Head see all tabs EXCEPT Claims and Purchasing
+        allTabs.forEach(tab => {
+            if (tab.id !== 'claims' && tab.id !== 'purchasing') {
+                visibleTabIds.add(tab.id);
+            }
+        });
+    }
+
+    // 2. Grant permissions for roles with very specific tab access
+    if (userRoles.has('Purchaser')) {
+        visibleTabIds.add('purchasing');
+        visibleTabIds.add('announcements');
+    }
+    if (userRoles.has('Finance')) {
+        visibleTabIds.add('claims');
+        visibleTabIds.add('purchasing');
+        visibleTabIds.add('announcements');
+    }
+    if (userRoles.has('Admin') || userRoles.has('IT')) {
+        visibleTabIds.add('announcements');
+    }
+    
+    // 3. Render the UI based on the final list of visible tabs
+    const visibleTabs = allTabs.filter(tab => visibleTabIds.has(tab.id));
+    
+    if (visibleTabs.length === 0) {
+        contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">You do not have permission to view any reports.</div>`;
+        return;
+    }
+
+    const defaultReport = visibleTabs[0].id;
+    
+    const tabsHTML = visibleTabs.map((tab, index) => {
+        const isActive = index === 0;
+        const activeClasses = 'border-indigo-500 text-indigo-600';
+        const inactiveClasses = 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300';
+        return `<button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${isActive ? activeClasses : inactiveClasses}" data-report="${tab.id}">${tab.label}</button>`;
+    }).join('');
 
     contentArea.innerHTML = `
         <div class="bg-white p-6 rounded-lg shadow">
@@ -2755,6 +2841,7 @@ const renderReports = async () => {
             <div id="report-content-container"></div>
         </div>
     `;
+    // --- END: NEW ROLE-BASED TAB PERMISSION LOGIC ---
 
     document.querySelectorAll('.tab-btn').forEach(tab => {
         tab.addEventListener('click', (e) => {
@@ -2768,8 +2855,9 @@ const renderReports = async () => {
         });
     });
 
-    loadReport(defaultReport); // Load the appropriate default report
+    loadReport(defaultReport);
 };
+
 // =================================================================================
 // END: REPORTS PAGE FUNCTIONS
 // =================================================================================
