@@ -389,7 +389,7 @@ const fetchUserLeaveQuota = async (userId) => {
 };
 
 // --- Page Rendering ---
-// Replace the entire renderDashboard function with this new version
+// in app.js
 const renderDashboard = async () => {
     pageTitle.textContent = 'Dashboard';
     contentArea.innerHTML = `<div class="p-6">Loading Dashboard...</div>`;
@@ -407,41 +407,37 @@ const renderDashboard = async () => {
         snapshots.forEach(snapshot => { totalPending += snapshot.size; });
         return totalPending;
     };
-const getFinanceClaims = async () => {
-    const claimsRef = collection(db, 'claims');
-    let q = query(claimsRef, where('status', '==', 'Approved'));
+    const getFinanceClaims = async () => {
+        const claimsRef = collection(db, 'claims');
+        let q = query(claimsRef, where('status', '==', 'Approved'));
 
-    // NEW: Scope the query if the user is not a Director
-    if (!userData.roles.includes('Director')) {
-        const deptsToView = userData.managedDepartments || [];
-        if (deptsToView.length > 0) {
-            q = query(q, where('department', 'in', deptsToView));
-        } else {
-            return []; // If a Finance user manages no departments, they can't see any claims.
+        if (!userData.roles.includes('Director')) {
+            const deptsToView = userData.managedDepartments || [];
+            if (deptsToView.length > 0) {
+                q = query(q, where('department', 'in', deptsToView));
+            } else {
+                return [];
+            }
         }
-    }
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => doc.data());
-};
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => doc.data());
+    };
 
+    const getPurchaserApprovals = async () => {
+        const purchaseRef = collection(db, 'purchaseRequests');
+        let q = query(purchaseRef, where('status', 'in', ['Approved', 'Processing']));
 
-
-const getPurchaserApprovals = async () => {
-    const purchaseRef = collection(db, 'purchaseRequests');
-    let q = query(purchaseRef, where('status', 'in', ['Approved', 'Processing']));
-
-    // NEW: Scope the query if the user is not a Director
-    if (!userData.roles.includes('Director')) {
-        const deptsToView = userData.managedDepartments || [];
-        if (deptsToView.length > 0) {
-            q = query(q, where('department', 'in', deptsToView));
-        } else {
-            return 0; // If a Purchaser manages no departments, they see 0 approvals.
+        if (!userData.roles.includes('Director')) {
+            const deptsToView = userData.managedDepartments || [];
+            if (deptsToView.length > 0) {
+                q = query(q, where('department', 'in', deptsToView));
+            } else {
+                return 0;
+            }
         }
-    }
-    const snapshot = await getDocs(q);
-    return snapshot.size;
-};
+        const snapshot = await getDocs(q);
+        return snapshot.size;
+    };
 
     const getMyAssignedJobs = async () => {
         const supportRef = collection(db, 'supportRequests');
@@ -454,104 +450,80 @@ const getPurchaserApprovals = async () => {
         return await getDocs(q);
     };
 
-const getMyUnacknowledgedAlerts = async () => {
+    const getMyUnacknowledgedAlerts = async () => {
         const q = query(collection(db, 'userAlerts'), where('userId', '==', currentUser.email), where('acknowledged', '==', false));
         return await getDocs(q);
     };
 
-// in app.js
-const fetchAndRenderAnnouncements = async () => {
-    const container = document.getElementById('dashboard-announcements-container');
-    if (!container) return;
+    const fetchAndRenderAnnouncements = async () => {
+        const container = document.getElementById('dashboard-announcements-container');
+        if (!container) return;
 
-    try {
-        const announcementsQuery = query(
-            collection(db, 'announcements'),
-            where('targetDepartments', 'array-contains-any', [userData.primaryDepartment, '__ALL__']),
-            orderBy('createdAt', 'desc'),
-            limit(10)
-        );
-        const snapshot = await getDocs(announcementsQuery);
+        try {
+            const announcementsQuery = query(
+                collection(db, 'announcements'),
+                where('targetDepartments', 'array-contains-any', [userData.primaryDepartment, '__ALL__']),
+                orderBy('createdAt', 'desc'),
+                limit(10)
+            );
+            const snapshot = await getDocs(announcementsQuery);
 
-        if (snapshot.empty) {
-            container.innerHTML = '';
-            return;
-        }
-
-        let announcementsHtml = '';
-        const unacknowledgedAnnouncements = [];
-
-        for (const docSnap of snapshot.docs) {
-            const announcement = { id: docSnap.id, ...docSnap.data() };
-            const ackRef = doc(db, 'announcements', announcement.id, 'acknowledgements', currentUser.email);
-            const ackDoc = await getDoc(ackRef);
-            if (!ackDoc.exists()) {
-                unacknowledgedAnnouncements.push(announcement);
+            if (snapshot.empty) {
+                container.innerHTML = '';
+                return;
             }
+
+            let announcementsHtml = '';
+            const unacknowledgedAnnouncements = [];
+
+            for (const docSnap of snapshot.docs) {
+                const announcement = { id: docSnap.id, ...docSnap.data() };
+                const ackRef = doc(db, 'announcements', announcement.id, 'acknowledgements', currentUser.email);
+                const ackDoc = await getDoc(ackRef);
+                if (!ackDoc.exists()) {
+                    unacknowledgedAnnouncements.push(announcement);
+                }
+            }
+
+            unacknowledgedAnnouncements.forEach(announcement => {
+                const isAcknowledged = false; // By definition, these are unacknowledged
+                const bannerStyle = 'bg-blue-100 border-blue-500';
+                const buttonHtml = `<button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>`;
+
+                announcementsHtml += `
+                    <div id="announcement-${announcement.id}" class="bg-white p-4 rounded-lg shadow border-l-4 ${bannerStyle}">
+                        <div class="flex justify-between items-start space-x-4">
+                            <div class="flex-grow min-w-0">
+                                <p class="font-bold text-gray-800">${announcement.title}</p>
+                                ${announcement.imageUrl ? `<img src="${announcement.imageUrl}" alt="Announcement Image" class="mt-3 rounded-lg max-h-60 w-auto border">` : ''}
+                                <p class="text-sm mt-3 break-all whitespace-pre-wrap text-gray-700">${announcement.content}</p>
+                                ${announcement.videoUrl ? `<a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm"><i class="fas fa-video mr-2"></i>Watch Video</a>` : ''}
+                                <p class="text-xs text-gray-500 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+                            </div>
+                            <div class="flex-shrink-0">${buttonHtml}</div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = announcementsHtml;
+
+        } catch (error) {
+            console.error("Error fetching announcements:", error);
+            container.innerHTML = '<p class="text-red-500">Could not load announcements.</p>';
         }
-
-        unacknowledgedAnnouncements.forEach(announcement => {
-announcementsHtml += `
-    <div id="announcement-${announcement.id}" class="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-md shadow-md">
-        <div class="flex justify-between items-start space-x-4">
-<div class="flex-grow min-w-0">
-    <p class="font-bold">${announcement.title}</p>
-    
-    ${announcement.imageUrl ? `
-        <img src="${announcement.imageUrl}" alt="Announcement Image" class="mt-3 rounded-lg max-h-60 w-auto border">
-    ` : ''}
-
-    <p class="text-sm mt-3 break-all whitespace-pre-wrap">${announcement.content}</p>
-    
-    ${announcement.videoUrl ? `
-        <a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm">
-            <i class="fas fa-video mr-2"></i>Watch Video
-        </a>
-    ` : ''}
-    
-    <p class="text-xs text-blue-600 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
-</div>
-             <div class="flex-shrink-0">
-                <button data-id="${announcement.id}" class="acknowledge-announcement-btn px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded-md hover:bg-blue-600">Acknowledge</button>
-             </div>
-        </div>
-    </div>
-            `;
-        });
-
-        container.innerHTML = announcementsHtml;
-
-    } catch (error) {
-        console.error("Error fetching announcements:", error);
-        container.innerHTML = '<p class="text-red-500">Could not load announcements.</p>';
-    }
-};
+    };
 
     try {
-        // --- TEMPORARY DIAGNOSTIC CODE ---
-console.log("--- STARTING DASHBOARD DIAGNOSTIC ---");
+        // --- DIAGNOSTIC CODE HAS BEEN REMOVED FROM THIS SECTION ---
+        const managerApprovalsCount = (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager') || userData.roles.includes('RegionalDirector')) ? await getManagerApprovalsCount() : 0;
+        const financeClaims = userData.roles.includes('Finance') ? await getFinanceClaims() : [];
+        const myAssignedJobs = await getMyAssignedJobs();
+        const purchaserApprovalsCount = userData.roles.includes('Purchaser') ? await getPurchaserApprovals() : 0;
+        const exceptionsSnapshot = await getMyUnacknowledgedExceptions();
+        const alertsSnapshot = await getMyUnacknowledgedAlerts();
+        // --- END OF CLEANUP ---
 
-console.log("Testing: getManagerApprovalsCount");
-const managerApprovalsCount = (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager') || userData.roles.includes('RegionalDirector')) ? await getManagerApprovalsCount() : 0;
-
-console.log("Testing: getFinanceClaims");
-const financeClaims = userData.roles.includes('Finance') ? await getFinanceClaims() : [];
-
-console.log("Testing: getMyAssignedJobs");
-const myAssignedJobs = await getMyAssignedJobs();
-
-console.log("Testing: getPurchaserApprovals");
-const purchaserApprovalsCount = userData.roles.includes('Purchaser') ? await getPurchaserApprovals() : 0;
-
-console.log("Testing: getMyUnacknowledgedExceptions");
-const exceptionsSnapshot = await getMyUnacknowledgedExceptions();
-
-console.log("Testing: getMyUnacknowledgedAlerts");
-const alertsSnapshot = await getMyUnacknowledgedAlerts();
-
-console.log("--- DASHBOARD DIAGNOSTIC COMPLETE ---");
-// --- END OF TEMPORARY CODE ---
-        
         let alertsHtml = '';
         if (!exceptionsSnapshot.empty) {
             exceptionsSnapshot.forEach(doc => {
@@ -567,15 +539,13 @@ console.log("--- DASHBOARD DIAGNOSTIC COMPLETE ---");
             });
         }
         
-// NEW: Render General Alert Banners
         alertsSnapshot.forEach(doc => {
             const alert = { id: doc.id, ...doc.data() };
             alertsHtml += `<div id="banner-${alert.id}" class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-md shadow-md flex justify-between items-center"><p class="font-bold">${alert.message}</p><button data-id="${alert.id}" class="acknowledge-alert-btn ml-4 px-3 py-1 bg-yellow-500 text-white text-sm font-bold rounded-md hover:bg-yellow-600">Acknowledge</button></div>`;
         });
 
-
         const currentYear = new Date().getFullYear();
-        const yearOptions = [currentYear, currentYear + 1, currentYear + 2].map(y => `<option value="${y}">${y}</option>`).join('');
+        const yearOptions = [currentYear - 1, currentYear, currentYear + 1].map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('');
 
         const canAnnounceRoles = ['Director', 'HR Head', 'DepartmentManager', 'HR', 'Finance', 'Purchaser', 'Admin', 'RegionalDirector', 'IT', 'RespiteManager'];
         const canAnnounce = userData.roles.some(role => canAnnounceRoles.includes(role));
@@ -586,7 +556,7 @@ console.log("--- DASHBOARD DIAGNOSTIC COMPLETE ---");
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow">
                     <h2 class="text-2xl font-bold text-gray-800">Welcome back, ${userData.name}!</h2>
-                    <p class="text-gray-600">Here's your summary for today, ${new Date().toLocaleDateString()}.</p>
+                    <p class="text-gray-600">Here's your summary for today, ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.</p>
                 </div>
                 <div class="bg-white p-6 rounded-lg shadow">
                     <div class="flex justify-between items-center mb-4">
@@ -606,7 +576,7 @@ console.log("--- DASHBOARD DIAGNOSTIC COMPLETE ---");
                 </div>`;
         
         if (userData.roles.includes('DepartmentManager') || userData.roles.includes('RespiteManager') || userData.roles.includes('RegionalDirector')) {
-             dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3><p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p><p class="text-gray-500">items need your attention.</p></div>`;
+            dashboardHtml += `<div class="bg-white p-6 rounded-lg shadow cursor-pointer hover:bg-gray-50" onclick="navigateTo('approvals')"><h3 class="text-lg font-semibold text-gray-800">Pending Approvals</h3><p class="text-5xl font-bold text-blue-600 mt-4">${managerApprovalsCount}</p><p class="text-gray-500">items need your attention.</p></div>`;
         }
         if (userData.roles.includes('Finance')) {
             const totalAmount = financeClaims.reduce((sum, claim) => sum + claim.amount, 0);
