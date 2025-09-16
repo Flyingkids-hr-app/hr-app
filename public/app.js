@@ -1502,12 +1502,37 @@ const renderSettings = async () => {
                 updateDeptList();
             } else if (newDept) { alert('This department already exists.'); }
         });
-        const updateReqTypeList = () => {
-            const listEl = document.getElementById('request-types-list');
-            listEl.innerHTML = currentRequestTypes.map((type, index) => `<div class="flex justify-between items-center p-2 bg-gray-50 rounded group"><div><span class="font-medium">${type.name}</span><div class="flex space-x-2 mt-1"><span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.hasQuota ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}">Has Quota</span><span class="text-xs font-semibold px-2 py-0.5 rounded-full ${type.isPaidLeave ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">Is Paid</span></div></div><button class="delete-req-type-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-index="${index}"><i class="fas fa-trash-alt"></i></button></div>`).join('') || '<p class="text-gray-500 text-center p-4">No request types configured.</p>';
-            document.querySelectorAll('.delete-req-type-btn').forEach(btn => btn.addEventListener('click', handleDeleteReqType));
-        };
-        const handleDeleteReqType = (e) => {
+// in app.js
+    const updateReqTypeList = () => {
+        const listEl = document.getElementById('request-types-list');
+
+        // --- START: CORRECTED LOGIC ---
+        // We will now build the tags conditionally to avoid showing them for 'false' values.
+        listEl.innerHTML = currentRequestTypes.map((type, index) => {
+            let tagsHtml = '';
+            if (type.hasQuota) {
+                tagsHtml += `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">Has Quota</span>`;
+            }
+            if (type.isPaidLeave) {
+                tagsHtml += `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800">Is Paid</span>`;
+            }
+
+            return `
+                <div class="flex justify-between items-center p-2 bg-gray-50 rounded group">
+                    <div>
+                        <span class="font-medium">${type.name}</span>
+                        <div class="flex space-x-2 mt-1">${tagsHtml}</div>
+                    </div>
+                    <button class="delete-req-type-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-index="${index}">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            `;
+        }).join('') || '<p class="text-gray-500 text-center p-4">No request types configured.</p>';
+        // --- END: CORRECTED LOGIC ---
+        
+        document.querySelectorAll('.delete-req-type-btn').forEach(btn => btn.addEventListener('click', handleDeleteReqType));
+    };        const handleDeleteReqType = (e) => {
             const indexToDelete = parseInt(e.currentTarget.dataset.index, 10);
             const typeName = currentRequestTypes[indexToDelete].name;
             if (confirm(`Are you sure you want to delete the request type "${typeName}"?`)) {
