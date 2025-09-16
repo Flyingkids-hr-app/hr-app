@@ -3849,38 +3849,84 @@ const openSupportModal = async () => {
 
 const closeSupportModal = () => supportModal.classList.add('hidden');
 
+// in app.js
 const handleSupportSubmit = async (e) => {
     e.preventDefault();
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Submitting...';
+
     const assigneeEmail = document.getElementById('support-assign-to').value;
     const subject = document.getElementById('support-subject').value.trim();
     const description = document.getElementById('support-description').value.trim();
+    const attachmentLink = document.getElementById('support-link').value.trim();
+    const file = document.getElementById('support-file').files[0];
+
     if (!assigneeEmail || !subject || !description) {
-        alert("Please fill out all fields.");
+        alert("Please fill out all required fields.");
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit Request';
         return;
     }
+    
     const assignee = allUsers.find(user => user.email === assigneeEmail);
     const newSupportRequest = {
-      requesterId: currentUser.email,
-      requesterName: userData.name,
-      department: userData.primaryDepartment, // <-- ADD THIS LINE
-      assigneeId: assignee.email,
-      assigneeName: assignee.name,
-      subject: subject,
-      description: description,
-      status: 'Open',
-      createdAt: serverTimestamp()
-  };
-    try {
-        await addDoc(collection(db, 'supportRequests'), newSupportRequest);
-        alert('Support request submitted successfully!');
-        closeSupportModal();
-        navigateTo('support');
-    } catch (error) {
-        console.error("Error submitting support request:", error);
-        alert("Failed to submit support request.");
+        requesterId: currentUser.email,
+        requesterName: userData.name,
+        department: userData.primaryDepartment,
+        assigneeId: assignee.email,
+        assigneeName: assignee.name,
+        subject: subject,
+        description: description,
+        attachmentLink: attachmentLink || null,
+        fileUrl: null, // Initialize as null
+        status: 'Open',
+        createdAt: serverTimestamp()
+    };
+
+    const saveTicketToFirestore = async () => {
+        try {
+            await addDoc(collection(db, 'supportRequests'), newSupportRequest);
+            alert('Support request submitted successfully!');
+            closeSupportModal();
+            navigateTo('support');
+        } catch (error) {
+            console.error("Error submitting support request:", error);
+            alert("Failed to submit support request.");
+            submitButton.disabled = false;
+            submitButton.textContent = 'Submit Request';
+        }
+    };
+
+    if (file) {
+        const progressIndicator = document.getElementById('support-upload-progress');
+        const storagePath = `support-ticket-attachments/${currentUser.uid}/${Date.now()}-${file.name}`;
+        const storageRef = ref(storage, storagePath);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        uploadTask.on('state_changed',
+            (snapshot) => {
+                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                progressIndicator.textContent = `Upload: ${progress.toFixed(0)}% done`;
+            },
+            (error) => {
+                console.error("File upload failed:", error);
+                alert("File upload failed. Please try again.");
+                submitButton.disabled = false;
+                submitButton.textContent = 'Submit Request';
+            },
+            async () => {
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                newSupportRequest.fileUrl = downloadURL;
+                await saveTicketToFirestore();
+            }
+        );
+    } else {
+        await saveTicketToFirestore();
     }
 };
 
+// in app.js
 const openViewSupportModal = async (taskId) => {
     try {
         const taskRef = doc(db, 'supportRequests', taskId);
@@ -3892,11 +3938,35 @@ const openViewSupportModal = async (taskId) => {
         }
         const task = taskDoc.data();
 
+        // --- START: NEW ATTACHMENT DISPLAY LOGIC ---
+        let attachmentsHtml = '';
+        if (task.attachmentLink) {
+            attachmentsHtml += `
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700">Attachment Link</label>
+                    <a href="${task.attachmentLink}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline break-all">${task.attachmentLink}</a>
+                </div>
+            `;
+        }
+        if (task.fileUrl) {
+            attachmentsHtml += `
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700">Attached File</label>
+                    <a href="${task.fileUrl}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">
+                        <i class="fas fa-paperclip mr-2"></i>View Attached File
+                    </a>
+                </div>
+            `;
+        }
+        // --- END: NEW ATTACHMENT DISPLAY LOGIC ---
+
         document.getElementById('view-support-id').value = taskId;
         document.getElementById('view-support-subject').textContent = task.subject;
         document.getElementById('view-support-requester').textContent = task.requesterName;
         document.getElementById('view-support-description').textContent = task.description;
+        document.getElementById('view-support-attachments').innerHTML = attachmentsHtml; // New element to display attachments
         document.getElementById('view-support-status').value = task.status;
+        
         viewSupportModal.classList.remove('hidden');
     } catch (error) {
         console.error("Error opening support ticket:", error);
