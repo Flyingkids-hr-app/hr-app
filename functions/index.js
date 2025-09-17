@@ -134,10 +134,10 @@ exports.getSupportAssignableUsers = onCall(async (request) => {
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: updateUserByManager (NEW)
 // =================================================================================
+// in functions/index.js
 exports.updateUserByManager = onCall({
     timeoutSeconds: 60,
 }, async (request) => {
-    // 1. Authentication and basic role check
     if (!request.auth) {
         throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
@@ -145,21 +145,20 @@ exports.updateUserByManager = onCall({
     const managerRoles = request.auth.token.roles || [];
 
     const isHr = managerRoles.includes('HR');
-const isHrHead = managerRoles.includes('HR Head') || managerRoles.includes('HRHead');
-const isRegionalDirector = managerRoles.includes('RegionalDirector');
+    const isHrHead = managerRoles.includes('HR Head') || managerRoles.includes('HRHead');
+    const isRegionalDirector = managerRoles.includes('RegionalDirector');
+    const isFinance = managerRoles.includes('Finance');
 
-if (!isHr && !isHrHead && !isRegionalDirector) {
+    if (!isHr && !isHrHead && !isRegionalDirector && !isFinance) {
         throw new HttpsError('permission-denied', 'You do not have permission to update user profiles.');
     }
 
-    // 2. Input validation
     const { targetUserEmail, updates } = request.data;
     if (!targetUserEmail || !updates || Object.keys(updates).length === 0) {
         throw new HttpsError('invalid-argument', 'Missing target user email or update data.');
     }
 
     try {
-        // 3. Get manager's and target user's data
         const managerDocRef = db.collection('users').doc(managerEmail);
         const targetUserDocRef = db.collection('users').doc(targetUserEmail);
         const [managerDoc, targetUserDoc] = await Promise.all([managerDocRef.get(), targetUserDocRef.get()]);
@@ -171,45 +170,42 @@ if (!isHr && !isHrHead && !isRegionalDirector) {
         const targetUserData = targetUserDoc.data();
         const managedDepartments = managerData.managedDepartments || [];
 
-        // 4. SECURITY CHECK 1: Is the target user within the manager's scope?
         if (!managedDepartments.includes(targetUserData.primaryDepartment)) {
             throw new HttpsError('permission-denied', `You can only manage users within your assigned departments. ${targetUserData.name} is in ${targetUserData.primaryDepartment}.`);
         }
-
-        // 5. Apply logic based on the specific role
+        
+        // --- START: GRANULAR BACKEND PERMISSION CHECK ---
         if (isHrHead || isRegionalDirector) {
-            // SECURITY CHECK 2 (HR Head): Prevent assigning 'Director' role
             if (updates.roles && updates.roles.includes('Director')) {
                 throw new HttpsError('permission-denied', 'You are not authorized to assign the Director role.');
             }
-            // SECURITY CHECK 3 (HR Head): Prevent assigning users to departments they don't manage
             if (updates.primaryDepartment && !managedDepartments.includes(updates.primaryDepartment)) {
                 throw new HttpsError('permission-denied', `You cannot assign a user to the ${updates.primaryDepartment} department as you do not manage it.`);
             }
-        } else if (isHr) {
-            // SECURITY CHECK 4 (HR): Prevent changing critical fields
+        } else if (isHr) { 
             const forbiddenKeys = ['roles', 'primaryDepartment', 'managedDepartments'];
             for (const key of forbiddenKeys) {
                 if (key in updates) {
-                    // Use a slightly different error message to distinguish the failure reason
                     throw new HttpsError('permission-denied', `Your role does not permit changing a user's ${key}.`);
                 }
             }
+        } else if (isFinance) {
+            // A Finance user cannot change ANY main user profile data via this function.
+            // This will block any save attempt, even if the save button was re-enabled on the client.
+            throw new HttpsError('permission-denied', 'Your role does not have permission to modify user profile data.');
         }
+        // --- END: GRANULAR BACKEND PERMISSION CHECK ---
 
-        // 6. If all security checks pass, perform the update
         await targetUserDocRef.update(updates);
         console.log(`User ${targetUserEmail} was successfully updated by ${managerEmail}.`);
         return { success: true, message: `User ${targetUserData.name} was updated successfully.` };
 
     } catch (error) {
         console.error("Error in updateUserByManager:", error);
-        // Re-throw HttpsError to the client, otherwise wrap other errors
         if (error instanceof HttpsError) { throw error; }
         throw new HttpsError('internal', 'An unexpected error occurred while updating the user.');
     }
 });
-
 
 // Add this entire new function to functions/index.js
 // =================================================================================

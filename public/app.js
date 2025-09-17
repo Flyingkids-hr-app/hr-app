@@ -117,7 +117,7 @@ const navItems = [
     { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'HR Head'] },
     // MODIFIED LINE: Added 'HR Head', 'Admin', and 'IT' to this list
     { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'Purchaser', 'HR Head', 'Admin', 'IT'] },
-    { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR', 'HR Head', 'RegionalDirector'] },
+    { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR', 'HR Head', 'RegionalDirector', 'Finance'] },
     { id: 'system-health', label: 'System Health', icon: 'fa-solid fa-heart-pulse', requiredRoles: ['Director'] },
     { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director', 'RegionalDirector', 'HR Head'] },
 ];
@@ -3420,35 +3420,38 @@ const handleDocumentDelete = async (userId, docId, storagePath, callback) => {
 };
 
 
-// Replace the entire openEditModal function in app.js with this new version
-// Replace the entire old openEditModal function with this new complete version
+
+// in app.js
 const openEditModal = async (userId) => {
     const userToEdit = allUsers.find(user => user.id === userId);
     if (!userToEdit) { alert("User not found!"); return; }
 
     document.getElementById('edit-user-form').reset();
     
-    // --- Determine editor's permissions ---
     const isDirector = userData.roles.includes('Director');
     const isHrHead = userData.roles.includes('HR Head');
     const isHr = userData.roles.includes('HR');
+    const isFinance = userData.roles.includes('Finance');
 
-    // --- Populate standard fields ---
     document.getElementById('edit-user-id').value = userToEdit.id;
     document.getElementById('edit-name').textContent = userToEdit.name;
     document.getElementById('edit-email').textContent = userToEdit.email;
     document.getElementById('edit-status').value = userToEdit.status;
     
-    // --- Department, Roles, Managed Depts (Now with role-based logic) ---
     const deptSelect = document.getElementById('edit-department');
     const rolesContainer = document.getElementById('edit-roles');
     const managedDeptsContainer = document.getElementById('edit-managed-departments');
+    const statusSelect = document.getElementById('edit-status');
+    const quotaContainer = document.getElementById('edit-leave-quotas-container');
+    const scheduleContainer = document.getElementById('edit-work-schedule-container');
+    const saveButton = document.querySelector('#edit-user-form button[type="submit"]');
+    const cancelButton = document.getElementById('modal-cancel-button');
 
     const assignableDepts = isDirector ? appConfig.availableDepartments : (userData.managedDepartments || []);
     deptSelect.innerHTML = assignableDepts.map(dept => `<option value="${dept}" ${dept === userToEdit.primaryDepartment ? 'selected' : ''}>${dept}</option>`).join('');
 
     let assignableRoles = appConfig.availableRoles;
-    if (isHrHead || userData.roles.includes('RegionalDirector')) { // HR Head & RD cannot assign Director
+    if (isHrHead || userData.roles.includes('RegionalDirector')) {
         assignableRoles = appConfig.availableRoles.filter(role => role !== 'Director');
     }
     rolesContainer.innerHTML = assignableRoles.map(role => {
@@ -3461,18 +3464,37 @@ const openEditModal = async (userId) => {
         return `<label class="flex items-center"><input type="checkbox" class="form-checkbox h-5 w-5 text-indigo-600" value="${dept}" ${isChecked ? 'checked' : ''}><span class="ml-2 text-gray-700">${dept}</span></label>`
     }).join('');
 
-    // If user is HR (not Head or Director), disable critical fields
-    if (isHr && !isHrHead && !isDirector) {
+    const isStandardHr = isHr && !isHrHead && !isDirector;
+
+    // Reset all fields to enabled by default
+    deptSelect.disabled = false;
+    rolesContainer.querySelectorAll('input').forEach(input => input.disabled = false);
+    managedDeptsContainer.querySelectorAll('input').forEach(input => input.disabled = false);
+    statusSelect.disabled = false;
+    scheduleContainer.querySelectorAll('input').forEach(input => input.disabled = false);
+    
+    // --- START: IMPROVED UI LOGIC ---
+    // Reset buttons to default state
+    saveButton.classList.remove('hidden');
+    cancelButton.textContent = 'Cancel';
+
+    if (isStandardHr) {
         deptSelect.disabled = true;
         rolesContainer.querySelectorAll('input').forEach(input => input.disabled = true);
         managedDeptsContainer.querySelectorAll('input').forEach(input => input.disabled = true);
-    } else {
-        deptSelect.disabled = false;
-        rolesContainer.querySelectorAll('input').forEach(input => input.disabled = false);
-        managedDeptsContainer.querySelectorAll('input').forEach(input => input.disabled = false);
+    } else if (isFinance) {
+        deptSelect.disabled = true;
+        rolesContainer.querySelectorAll('input').forEach(input => input.disabled = true);
+        managedDeptsContainer.querySelectorAll('input').forEach(input => input.disabled = true);
+        statusSelect.disabled = true;
+        scheduleContainer.querySelectorAll('input').forEach(input => input.disabled = true);
+        
+        // Hide Save button and rename Cancel to Close for Finance role
+        saveButton.classList.add('hidden');
+        cancelButton.textContent = 'Close';
     }
+    // --- END: IMPROVED UI LOGIC ---
 
-    // --- Leave Quotas with Dropdown Selector ---
     const year1 = new Date().getFullYear();
     const years = [year1, year1 + 1, year1 + 2];
     const quotaRefs = years.map(year => doc(db, 'users', userId, 'leaveQuotas', String(year)));
@@ -3482,15 +3504,10 @@ const openEditModal = async (userId) => {
         [years[1]]: quotaDocs[1].exists() ? quotaDocs[1].data() : {},
         [years[2]]: quotaDocs[2].exists() ? quotaDocs[2].data() : {}
     };
-    const quotaContainer = document.getElementById('edit-leave-quotas-container');
+    
     quotaContainer.innerHTML = '';
     const yearOptionsHTML = years.map(year => `<option value="${year}">${year}</option>`).join('');
-    quotaContainer.innerHTML += `
-        <div class="md:col-span-2 mb-4">
-            <label for="quota-year-selector" class="block text-sm font-medium text-gray-700">Select Year to Edit</label>
-            <select id="quota-year-selector" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm sm:text-sm">${yearOptionsHTML}</select>
-        </div>
-    `;
+    quotaContainer.innerHTML += `<div class="md:col-span-2 mb-4"><label for="quota-year-selector" class="block text-sm font-medium text-gray-700">Select Year to Edit</label><select id="quota-year-selector" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm sm:text-sm">${yearOptionsHTML}</select></div>`;
     years.forEach((year, index) => {
         let inputsHTML = '';
         appConfig.requestTypes.forEach(type => {
@@ -3509,9 +3526,11 @@ const openEditModal = async (userId) => {
             panel.id === `quota-content-${selectedYear}` ? panel.classList.remove('hidden') : panel.classList.add('hidden');
         });
     });
+    
+    if (isFinance) {
+        quotaContainer.querySelectorAll('input, select').forEach(input => input.disabled = true);
+    }
 
-    // --- Work Schedule Logic ---
-    const scheduleContainer = document.getElementById('edit-work-schedule-container');
     scheduleContainer.innerHTML = '';
     const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
     const userSchedule = userToEdit.workSchedule || {};
@@ -3520,7 +3539,6 @@ const openEditModal = async (userId) => {
         scheduleContainer.innerHTML += `<div class="grid grid-cols-6 gap-3 items-center"><label class="flex items-center col-span-2"><input type="checkbox" id="sch-active-${day}" class="form-checkbox h-5 w-5 text-indigo-600" ${dayData.active ? 'checked' : ''}><span class="ml-2 text-gray-800 font-medium">${day}</span></label><div class="col-span-2"><label for="sch-in-${day}" class="text-xs text-gray-500">Check-in</label><input type="time" id="sch-in-${day}" value="${dayData.checkIn || ''}" class="mt-1 block w-full py-1 px-2 border border-gray-300 rounded-md text-sm"></div><div class="col-span-2"><label for="sch-out-${day}" class="text-xs text-gray-500">Check-out</label><input type="time" id="sch-out-${day}" value="${dayData.checkOut || ''}" class="mt-1 block w-full py-1 px-2 border border-gray-300 rounded-md text-sm"></div></div>`;
     });
 
-    // --- Document Management ---
     const docsListEl = document.getElementById('existing-docs-list');
     const renderDocs = async () => {
         try {
@@ -3548,7 +3566,6 @@ const openEditModal = async (userId) => {
     await renderDocs();
     document.getElementById('upload-doc-button').onclick = () => handleDocumentUpload(userId, renderDocs);
 
-    // Attach listeners and show modal
     document.getElementById('modal-close-button').addEventListener('click', closeEditModal);
     document.getElementById('modal-cancel-button').addEventListener('click', closeEditModal);
     
@@ -3557,8 +3574,8 @@ const openEditModal = async (userId) => {
 
 const closeEditModal = () => editUserModal.classList.add('hidden');
 
-// Replace the entire handleUpdateUser function in app.js with this new version
-// Replace the entire old handleUpdateUser function with this new complete version
+
+// in app.js
 // in app.js
 const handleUpdateUser = async (e) => {
     e.preventDefault();
@@ -3569,7 +3586,6 @@ const handleUpdateUser = async (e) => {
 
     const isDirector = userData.roles.includes('Director');
 
-    // 1. Collect ALL data from the form
     let mainUpdateData = {
         primaryDepartment: document.getElementById('edit-department').value,
         status: document.getElementById('edit-status').value,
@@ -3588,7 +3604,6 @@ const handleUpdateUser = async (e) => {
         };
     });
 
-    // 2. Prepare promises for Leave Quotas (subcollection)
     const year1 = new Date().getFullYear();
     const years = [year1, year1 + 1, year1 + 2];
     const quotaUpdatePromises = years.map(year => {
@@ -3610,26 +3625,27 @@ const handleUpdateUser = async (e) => {
     try {
         let mainUpdatePromise;
         
-        // --- START: NEW LOGIC FOR STANDARD HR ROLE ---
-        // Check if the user is a standard HR user (not HR Head or Director)
+        // --- START: CORRECTED LOGIC FOR RESTRICTED ROLES ---
         const isStandardHr = userData.roles.includes('HR') && !userData.roles.includes('HR Head') && !userData.roles.includes('Director');
+        const isFinance = userData.roles.includes('Finance');
 
-        if (isStandardHr) {
-            // If they are, we only send the fields they are allowed to modify.
-            // This prevents the Cloud Function from rejecting the request.
+        // Check if the user has a restricted role (standard HR or Finance)
+        if (isStandardHr || isFinance) {
+            // If they do, we only send the fields they are allowed to modify.
             const allowedUpdates = {
                 status: mainUpdateData.status,
                 workSchedule: mainUpdateData.workSchedule
             };
             mainUpdateData = allowedUpdates; 
         }
-        // --- END: NEW LOGIC FOR STANDARD HR ROLE ---
+        // --- END: CORRECTED LOGIC FOR RESTRICTED ROLES ---
 
         if (isDirector) {
             console.log("Director performing direct update...");
             mainUpdatePromise = updateDoc(doc(db, 'users', userId), mainUpdateData);
         } else {
-            console.log("HR/HR Head/RD calling secure updateUserByManager function...");
+            // This log message is now more accurate.
+            console.log("Manager (HR/RD/Finance) calling secure updateUserByManager function...");
             const updateUserByManager = httpsCallable(functions, 'updateUserByManager');
             mainUpdatePromise = updateUserByManager({ 
                 targetUserEmail: userId, 
@@ -3650,7 +3666,9 @@ const handleUpdateUser = async (e) => {
         submitButton.disabled = false;
         submitButton.innerHTML = 'Save Changes';
     }
-};const openCreateModal = () => {
+};
+
+const openCreateModal = () => {
     createUserForm.reset();
 
     // 1. Determine which departments the creator can assign a new user to
