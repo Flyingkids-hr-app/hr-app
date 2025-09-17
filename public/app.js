@@ -1698,11 +1698,16 @@ const exportToCSV = (data, filename) => {
     document.body.removeChild(a);
 };
 
+// in app.js
 const renderReportFilters = (container, options) => {
     const { showDateRange, showStatus, showDepartment, onApply, onExport } = options;
-    const hasGlobalAccess = userData.roles.includes('Director') || userData.roles.includes('HR') || userData.roles.includes('Finance');
-    const isManager = userData.roles.some(r => ['DepartmentManager', 'Director', 'HR', 'Finance', 'Purchaser'].includes(r));
+
+    // --- START: NEW DYNAMIC FILTER LOGIC ---
+    const isDirector = userData.roles.includes('Director');
+    const isMultiDeptManager = userData.managedDepartments && userData.managedDepartments.length > 1;
+
     let filtersHTML = '<div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">';
+
     if (showDateRange) {
         filtersHTML += `
             <div>
@@ -1731,40 +1736,41 @@ const renderReportFilters = (container, options) => {
             </div>
         `;
     }
-    if (showDepartment && hasGlobalAccess) {
-        let deptOptions = '<option value="">All Departments</option>';
-        appConfig.availableDepartments.forEach(dept => {
-            deptOptions += `<option value="${dept}">${dept}</option>`;
-        });
+    
+    // Show department filter for Directors OR managers of multiple departments
+    if (showDepartment && (isDirector || isMultiDeptManager)) {
+        const deptsForFilter = isDirector ? appConfig.availableDepartments : userData.managedDepartments;
+        const defaultOptionText = isDirector ? "All Departments" : "All My Departments";
+        let deptOptions = deptsForFilter.map(d => `<option value="${d}">${d}</option>`).join('');
+
         filtersHTML += `
             <div>
                 <label for="report-department" class="block text-sm font-medium text-gray-700">Department</label>
-                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">${deptOptions}</select>
+                <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
+                    <option value="">${defaultOptionText}</option>
+                    ${deptOptions}
+                </select>
             </div>
         `;
     } else {
+        // Leave a placeholder div to keep the grid alignment consistent
         filtersHTML += '<div></div>';
     }
+
     filtersHTML += `
-        <div class="flex items-end">
+        <div class="flex items-end space-x-2">
             <button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button>
+            <button id="export-csv-btn" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700">
+                <i class="fas fa-file-csv mr-2"></i>Export
+            </button>
         </div>
     `;
-    if (isManager) {
-        filtersHTML += `
-            <div class="flex items-end">
-                 <button id="export-csv-btn" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700">
-                     <i class="fas fa-file-csv mr-2"></i>Export CSV
-                 </button>
-            </div>
-        `;
-    }
     filtersHTML += '</div>';
+
     container.innerHTML = filtersHTML;
     document.getElementById('apply-filters-btn').addEventListener('click', onApply);
-    if(isManager && document.getElementById('export-csv-btn')) {
-        document.getElementById('export-csv-btn').addEventListener('click', onExport);
-    }
+    document.getElementById('export-csv-btn').addEventListener('click', onExport);
+    // --- END: NEW DYNAMIC FILTER LOGIC ---
 };
 
 // Add this entire new function to app.js
@@ -2730,8 +2736,7 @@ const renderAttendanceReport = () => {
     fetchData();
 };
 
-// in app.js
-// in app.js
+
 // in app.js
 const renderAnnouncementsReport = async () => {
     const contentContainer = document.getElementById('report-content-container');
@@ -2740,15 +2745,14 @@ const renderAnnouncementsReport = async () => {
     const dataContainer = document.getElementById('report-data-container');
     let currentAnnouncementsData = [];
 
-    const isDirector = userData.roles.includes('Director');
-    const managedDepartments = userData.managedDepartments || [];
-    const isMultiDeptManager = managedDepartments.length > 1;
-
+    // This function will now be called by the shared filter logic
     const fetchData = async () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching announcements...</p>`;
         
+        const isDirector = userData.roles.includes('Director');
         let q;
         const departmentFilter = document.getElementById('report-department')?.value;
+        const managedDepartments = userData.managedDepartments || [];
 
         if (isDirector) {
             q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
@@ -2756,14 +2760,11 @@ const renderAnnouncementsReport = async () => {
                 q = query(q, where('targetDepartments', 'array-contains', departmentFilter));
             }
         } else {
-            // Non-directors see announcements targeted at the departments they manage.
             if (managedDepartments.length === 0) {
                  dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to manage any departments.</p>`;
                  return;
             }
-            // Base query for departments they manage.
             q = query(collection(db, 'announcements'), where('targetDepartments', 'array-contains-any', managedDepartments), orderBy('createdAt', 'desc'));
-            // Further filter if a specific department is selected from the dropdown.
             if (departmentFilter) {
                 q = query(collection(db, 'announcements'), where('targetDepartments', 'array-contains', departmentFilter), orderBy('createdAt', 'desc'));
             }
@@ -2778,7 +2779,6 @@ const renderAnnouncementsReport = async () => {
                 tableHTML += `<tr><td colspan="5" class="p-4 text-center text-gray-500">No announcements found.</td></tr>`;
             } else {
                  currentAnnouncementsData.forEach(ann => {
-                    // Only show announcements relevant to the manager's scope
                     if (isDirector || ann.targetDepartments.some(d => managedDepartments.includes(d)) || ann.targetDepartments.includes('__ALL__')) {
                         const depts = ann.targetDepartments.includes('__ALL__') ? 'All Departments' : ann.targetDepartments.join(', ');
                         tableHTML += `<tr>
@@ -2804,26 +2804,15 @@ const renderAnnouncementsReport = async () => {
             dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data.</p>`;
         }
     };
-
-    if (isDirector || isMultiDeptManager) {
-        const deptsForFilter = isDirector ? appConfig.availableDepartments : managedDepartments;
-        let deptOptions = deptsForFilter.map(d => `<option value="${d}">${d}</option>`).join('');
-        
-        filtersContainer.innerHTML = `
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                <div>
-                    <label for="report-department" class="block text-sm font-medium text-gray-700">Filter by Department</label>
-                    <select id="report-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md">
-                        <option value="">All My Departments</option>
-                        ${deptOptions}
-                    </select>
-                </div>
-                <div class="flex items-end"><button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filter</button></div>
-            </div>`;
-        document.getElementById('apply-filters-btn').addEventListener('click', fetchData);
-    }
     
-    fetchData();
+    // Now this function calls the new shared filter function
+    renderReportFilters(filtersContainer, {
+        showDepartment: true,
+        onApply: fetchData,
+        onExport: () => console.log("Export for announcements not yet implemented.") // Placeholder
+    });
+    
+    fetchData(); // Initial load
 };
 
 // --- And then REPLACE the existing loadReport and renderReports functions ---
