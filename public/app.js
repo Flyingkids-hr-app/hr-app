@@ -119,7 +119,7 @@ const navItems = [
     { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'Purchaser', 'HR Head', 'Admin', 'IT'] },
     { id: 'user-management', label: 'User Management', icon: 'fa-solid fa-users-cog', requiredRoles: ['Director', 'HR', 'HR Head', 'RegionalDirector'] },
     { id: 'system-health', label: 'System Health', icon: 'fa-solid fa-heart-pulse', requiredRoles: ['Director'] },
-    { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director', 'RegionalDirector'] },
+    { id: 'settings', label: 'Settings', icon: 'fa-solid fa-cog', requiredRoles: ['Director', 'RegionalDirector', 'HR Head'] },
 ];
 
 // --- Helper Functions ---
@@ -1308,15 +1308,18 @@ const renderMyJob = async () => {
 };
 
 // Find and replace this entire function in app.js
-// Replace the entire old renderSettings function with this new, complete version
+// in app.js
 const renderSettings = async () => {
     pageTitle.textContent = 'Settings';
 
-    const canViewSettings = userData.roles.includes('Director') || userData.roles.includes('HR') || userData.roles.includes('RegionalDirector');
+    // --- START: MODIFIED PERMISSION CHECK ---
+    // The list of roles now matches the navItems array for consistency.
+    const canViewSettings = userData.roles.includes('Director') || userData.roles.includes('RegionalDirector') || userData.roles.includes('HR Head');
     if (!userData || !canViewSettings) {
         contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">You do not have permission to view this page.</div>`;
         return;
     }
+    // --- END: MODIFIED PERMISSION CHECK ---
 
     if (!appConfig) {
         await fetchAppConfig();
@@ -1338,8 +1341,8 @@ const renderSettings = async () => {
                     </div>
                 </div>
                 <div class="md:col-span-2">
-                     <h4 class="font-medium text-gray-800 mb-2">Upcoming Non-Working Days</h4>
-                     <div id="calendar-list" class="space-y-2 max-h-96 overflow-y-auto border p-2 rounded-lg"><p class="text-gray-500 text-center p-4">Loading...</p></div>
+                    <h4 class="font-medium text-gray-800 mb-2">Upcoming Non-Working Days</h4>
+                    <div id="calendar-list" class="space-y-2 max-h-96 overflow-y-auto border p-2 rounded-lg"><p class="text-gray-500 text-center p-4">Loading...</p></div>
                 </div>
             </div>
         </div>
@@ -1472,37 +1475,31 @@ const renderSettings = async () => {
                 updateDeptList();
             } else if (newDept) { alert('This department already exists.'); }
         });
-// in app.js
-    const updateReqTypeList = () => {
-        const listEl = document.getElementById('request-types-list');
-
-        // --- START: CORRECTED LOGIC ---
-        // We will now build the tags conditionally to avoid showing them for 'false' values.
-        listEl.innerHTML = currentRequestTypes.map((type, index) => {
-            let tagsHtml = '';
-            if (type.hasQuota) {
-                tagsHtml += `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">Has Quota</span>`;
-            }
-            if (type.isPaidLeave) {
-                tagsHtml += `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800">Is Paid</span>`;
-            }
-
-            return `
-                <div class="flex justify-between items-center p-2 bg-gray-50 rounded group">
-                    <div>
-                        <span class="font-medium">${type.name}</span>
-                        <div class="flex space-x-2 mt-1">${tagsHtml}</div>
+        const updateReqTypeList = () => {
+            const listEl = document.getElementById('request-types-list');
+            listEl.innerHTML = currentRequestTypes.map((type, index) => {
+                let tagsHtml = '';
+                if (type.hasQuota) {
+                    tagsHtml += `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">Has Quota</span>`;
+                }
+                if (type.isPaidLeave) {
+                    tagsHtml += `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800">Is Paid</span>`;
+                }
+                return `
+                    <div class="flex justify-between items-center p-2 bg-gray-50 rounded group">
+                        <div>
+                            <span class="font-medium">${type.name}</span>
+                            <div class="flex space-x-2 mt-1">${tagsHtml}</div>
+                        </div>
+                        <button class="delete-req-type-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-index="${index}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
                     </div>
-                    <button class="delete-req-type-btn text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-index="${index}">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>
-                </div>
-            `;
-        }).join('') || '<p class="text-gray-500 text-center p-4">No request types configured.</p>';
-        // --- END: CORRECTED LOGIC ---
-        
-        document.querySelectorAll('.delete-req-type-btn').forEach(btn => btn.addEventListener('click', handleDeleteReqType));
-    };        const handleDeleteReqType = (e) => {
+                `;
+            }).join('') || '<p class="text-gray-500 text-center p-4">No request types configured.</p>';
+            document.querySelectorAll('.delete-req-type-btn').forEach(btn => btn.addEventListener('click', handleDeleteReqType));
+        };
+        const handleDeleteReqType = (e) => {
             const indexToDelete = parseInt(e.currentTarget.dataset.index, 10);
             const typeName = currentRequestTypes[indexToDelete].name;
             if (confirm(`Are you sure you want to delete the request type "${typeName}"?`)) {
