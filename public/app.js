@@ -2268,6 +2268,7 @@ const renderSupportTicketsReport = () => {
     fetchDataAndRender();
 };
 
+// in app.js
 const renderLeaveReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
@@ -2317,15 +2318,16 @@ const renderLeaveReport = () => {
             const querySnapshot = await getDocs(q);
             const requests = querySnapshot.docs.map(doc => doc.data());
             
+            // --- CHANGE 1: "Hours_Claimed" column re-ordered for clarity in CSV export ---
             dataForExport = requests.map(req => ({
                 Employee: req.userName,
                 Department: req.department,
                 Type: req.type,
                 StartDate: formatDateTime(req.startDate),
                 EndDate: formatDateTime(req.endDate),
-                Hours: req.hours,
+                Hours_Claimed: req.hours,
                 Status: req.status,
-                ApprovedBy: userMap.get(req.approvedBy) || req.approvedBy || 'N/A', // NAME LOOKUP
+                ApprovedBy: userMap.get(req.approvedBy) || req.approvedBy || 'N/A',
                 Reason: req.reason,
                 DocumentURL: req.documentUrl || 'N/A'
             }));
@@ -2338,6 +2340,7 @@ const renderLeaveReport = () => {
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours Claimed</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
                             </tr>
@@ -2346,16 +2349,17 @@ const renderLeaveReport = () => {
             `;
 
             if (requests.length === 0) {
-                tableHTML += `<tr><td colspan="5" class="p-4 text-center text-gray-500">No leave data found.</td></tr>`;
+                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No leave data found.</td></tr>`;
             } else {
                 requests.forEach(req => {
                     const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-100 text-green-800', Rejected: 'bg-red-100 text-red-800' }[req.status] || 'bg-gray-100';
-                    const approverName = userMap.get(req.approvedBy) || req.approvedBy || 'N/A'; // NAME LOOKUP
+                    const approverName = userMap.get(req.approvedBy) || req.approvedBy || 'N/A';
                     tableHTML += `
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">${req.userName}</td>
                             <td class="px-6 py-4 whitespace-nowrap">${req.type}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${formatDateTime(req.startDate)} to ${formatDateTime(req.endDate)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">${req.hours}</td>
                             <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span></td>
                             <td class="px-6 py-4 whitespace-nowrap">${approverName}</td>
                         </tr>
@@ -3108,12 +3112,10 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
         
         switch(collectionName) {
             case 'requests':
-                // ... (no changes in this case)
-                const duration = calculateDuration(data.startDate, data.endDate);
-                modalTitle.textContent = 'Leave / OT Request Details';
-                bodyHtml += `<p><strong>Applicant:</strong> ${data.userName}</p><p><strong>Type:</strong> ${data.type}</p><p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p><p><strong>Calculated Duration:</strong> ${duration}</p><p><strong>Hours Claimed:</strong> ${data.hours}</p><p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p><p><strong>Status:</strong> ${data.status}</p>${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}`;
-                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>`; }
-                break;
+            modalTitle.textContent = 'Leave / OT Request Details';
+            bodyHtml += `<p><strong>Applicant:</strong> ${data.userName}</p><p><strong>Type:</strong> ${data.type}</p><p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p><p><strong>Hours Claimed:</strong> ${data.hours}</p><p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p><p><strong>Status:</strong> ${data.status}</p>${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}`;
+            if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>`; }
+            break;
 // Find the 'case 'claims':' block inside openRequestDetailsModal and replace it with this:
 case 'claims':
     modalTitle.textContent = 'Expense Claim Details';
