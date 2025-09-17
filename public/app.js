@@ -3312,6 +3312,7 @@ const handlePurchaseUpdate = async (requestId, newStatus, userField) => {
     }
 };
 
+// in app.js
 const handleDocumentUpload = async (userId, callback) => {
     const fileInput = document.getElementById('doc-upload');
     const category = document.getElementById('doc-category').value;
@@ -3324,12 +3325,30 @@ const handleDocumentUpload = async (userId, callback) => {
         return;
     }
 
+    // --- START: NEW LOGIC ---
+    // Find the target user in our list to get their department
+    const targetUser = allUsers.find(user => user.id === userId);
+    if (!targetUser) {
+        alert("Could not find the target user to verify department. Aborting upload.");
+        return;
+    }
+    const targetUserDepartment = targetUser.primaryDepartment;
+
+    // Create file metadata to send with the upload
+    const metadata = {
+        customMetadata: {
+            'targetUserDepartment': targetUserDepartment
+        }
+    };
+    // --- END: NEW LOGIC ---
+
     uploadButton.disabled = true;
     uploadButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
     const storagePath = `user-documents/${userId}/${Date.now()}-${file.name}`;
     const storageRef = ref(storage, storagePath);
-    const uploadTask = uploadBytesResumable(storageRef, file);
+    // Pass the metadata with the upload task
+    const uploadTask = uploadBytesResumable(storageRef, file, metadata);
 
     uploadTask.on('state_changed',
         (snapshot) => {
@@ -3372,7 +3391,6 @@ const handleDocumentUpload = async (userId, callback) => {
         }
     );
 };
-
 const handleDocumentDelete = async (userId, docId, storagePath, callback) => {
     if (!confirm("Are you sure you want to permanently delete this document? This cannot be undone.")) {
         return;
@@ -3541,41 +3559,36 @@ const closeEditModal = () => editUserModal.classList.add('hidden');
 
 // Replace the entire handleUpdateUser function in app.js with this new version
 // Replace the entire old handleUpdateUser function with this new complete version
+// in app.js
 const handleUpdateUser = async (e) => {
     e.preventDefault();
-    const userId = document.getElementById('edit-user-id').value; // This is the email of the user being edited
+    const userId = document.getElementById('edit-user-id').value;
     const submitButton = e.target.querySelector('button[type="submit"]');
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
 
     const isDirector = userData.roles.includes('Director');
 
-    // --- Collect ALL data from the form ---
-
-    // 1. Collect Work Schedule from form
-    const newWorkSchedule = {};
-    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-    daysOfWeek.forEach(day => {
-        const isActive = document.getElementById(`sch-active-${day}`).checked;
-        const checkIn = document.getElementById(`sch-in-${day}`).value;
-        const checkOut = document.getElementById(`sch-out-${day}`).value;
-        newWorkSchedule[day] = {
-            active: isActive,
-            checkIn: isActive ? checkIn : '',
-            checkOut: isActive ? checkOut : ''
-        };
-    });
-
-    // 2. Construct the main user document update object
-    const mainUpdateData = {
+    // 1. Collect ALL data from the form
+    let mainUpdateData = {
         primaryDepartment: document.getElementById('edit-department').value,
         status: document.getElementById('edit-status').value,
         roles: Array.from(document.querySelectorAll('#edit-roles input:checked')).map(i => i.value),
         managedDepartments: Array.from(document.querySelectorAll('#edit-managed-departments input:checked')).map(i => i.value),
-        workSchedule: newWorkSchedule
+        workSchedule: {}
     };
+    
+    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    daysOfWeek.forEach(day => {
+        const isActive = document.getElementById(`sch-active-${day}`).checked;
+        mainUpdateData.workSchedule[day] = {
+            active: isActive,
+            checkIn: isActive ? document.getElementById(`sch-in-${day}`).value : '',
+            checkOut: isActive ? document.getElementById(`sch-out-${day}`).value : ''
+        };
+    });
 
-    // 3. Prepare promises for Leave Quotas (subcollection)
+    // 2. Prepare promises for Leave Quotas (subcollection)
     const year1 = new Date().getFullYear();
     const years = [year1, year1 + 1, year1 + 2];
     const quotaUpdatePromises = years.map(year => {
@@ -3594,17 +3607,29 @@ const handleUpdateUser = async (e) => {
         return setDoc(quotaRef, updatedQuotaData, { merge: true });
     });
 
-
     try {
         let mainUpdatePromise;
+        
+        // --- START: NEW LOGIC FOR STANDARD HR ROLE ---
+        // Check if the user is a standard HR user (not HR Head or Director)
+        const isStandardHr = userData.roles.includes('HR') && !userData.roles.includes('HR Head') && !userData.roles.includes('Director');
+
+        if (isStandardHr) {
+            // If they are, we only send the fields they are allowed to modify.
+            // This prevents the Cloud Function from rejecting the request.
+            const allowedUpdates = {
+                status: mainUpdateData.status,
+                workSchedule: mainUpdateData.workSchedule
+            };
+            mainUpdateData = allowedUpdates; 
+        }
+        // --- END: NEW LOGIC FOR STANDARD HR ROLE ---
 
         if (isDirector) {
-            // Directors can update the document directly as per our Firestore rules
             console.log("Director performing direct update...");
             mainUpdatePromise = updateDoc(doc(db, 'users', userId), mainUpdateData);
         } else {
-            // HR and HR Head must use the secure Cloud Function
-            console.log("HR/HR Head calling secure updateUserByManager function...");
+            console.log("HR/HR Head/RD calling secure updateUserByManager function...");
             const updateUserByManager = httpsCallable(functions, 'updateUserByManager');
             mainUpdatePromise = updateUserByManager({ 
                 targetUserEmail: userId, 
@@ -3612,12 +3637,11 @@ const handleUpdateUser = async (e) => {
             });
         }
 
-        // Execute all updates (main profile and all leave quota years) in parallel
         await Promise.all([mainUpdatePromise, ...quotaUpdatePromises]);
 
         alert('User updated successfully!');
         closeEditModal();
-        await navigateTo('user-management'); // Use await to ensure re-render happens correctly
+        await navigateTo('user-management');
 
     } catch (e) {
         console.error("Error updating user:", e);
@@ -3626,9 +3650,7 @@ const handleUpdateUser = async (e) => {
         submitButton.disabled = false;
         submitButton.innerHTML = 'Save Changes';
     }
-};
-
-const openCreateModal = () => {
+};const openCreateModal = () => {
     createUserForm.reset();
 
     // 1. Determine which departments the creator can assign a new user to

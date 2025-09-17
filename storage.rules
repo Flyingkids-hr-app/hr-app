@@ -2,35 +2,43 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     
-    // Allow users to read any file if they are signed in.
-    // You can make this more restrictive later if needed.
     match /{allPaths=**} {
       allow read: if request.auth != null;
     }
 
-    // --- NEW SECURE UPLOAD RULES ---
-    
-    // Secure Announcement Images
+    // --- START: FINAL, RELIABLE user-documents RULE ---
+    match /user-documents/{targetUserId}/{fileName} {
+      allow delete: if request.auth != null && request.auth.token.roles.hasAny(['Director']);
+      
+      allow write: if request.auth != null &&
+                   (
+                      request.auth.token.roles.hasAny(['Director']) ||
+                      (
+                        request.auth.token.roles.hasAny(['RegionalDirector', 'HR Head', 'HR', 'Finance', 'DepartmentManager']) &&
+                        // This rule now checks the metadata sent with the file
+                        // against the manager's secure permission token.
+                        request.resource.metadata.targetUserDepartment in request.auth.token.managedDepartments
+                      )
+                   );
+    }
+    // --- END: FINAL, RELIABLE user-documents RULE ---
+
     match /announcement-images/{fileName} {
       allow write: if request.auth != null;
     }
     
-    // Secure Purchase Receipts
     match /purchase-receipts/{userId}/{fileName} {
        allow write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Secure Leave Documents
     match /leave-documents/{userId}/{fileName} {
        allow write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Secure General Receipts
     match /receipts/{userId}/{fileName} {
        allow write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Secure Support Ticket Attachments (New Rule)
     match /support-ticket-attachments/{userId}/{fileName} {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
