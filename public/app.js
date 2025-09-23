@@ -423,21 +423,46 @@ const renderDashboard = async () => {
         return snapshot.docs.map(doc => doc.data());
     };
 
-    const getPurchaserApprovals = async () => {
-        const purchaseRef = collection(db, 'purchaseRequests');
-        let q = query(purchaseRef, where('status', 'in', ['Approved', 'Processing']));
+const getPurchaserApprovals = async () => {
+    const purchaseRef = collection(db, 'purchaseRequests');
+    const requiredStatuses = ['Approved', 'Processing'];
 
-        if (!userData.roles.includes('Director')) {
-            const deptsToView = userData.managedDepartments || [];
-            if (deptsToView.length > 0) {
-                q = query(q, where('department', 'in', deptsToView));
-            } else {
-                return 0;
-            }
-        }
+    if (userData.roles.includes('Director')) {
+        const q = query(purchaseRef, where('status', 'in', requiredStatuses));
         const snapshot = await getDocs(q);
         return snapshot.size;
-    };
+    }
+
+    const deptsToView = userData.managedDepartments || [];
+    if (deptsToView.length === 0) {
+        return 0;
+    }
+
+    // Chunk the departments array into pieces of 30 or less
+    const CHUNK_SIZE = 30;
+    const deptChunks = [];
+    for (let i = 0; i < deptsToView.length; i += CHUNK_SIZE) {
+        deptChunks.push(deptsToView.slice(i, i + CHUNK_SIZE));
+    }
+
+    const queryPromises = deptChunks.map(chunk => {
+        const q = query(purchaseRef, where('department', 'in', chunk));
+        return getDocs(q);
+    });
+
+    const querySnapshots = await Promise.all(queryPromises);
+    
+    let totalPending = 0;
+    querySnapshots.forEach(snapshot => {
+        snapshot.forEach(doc => {
+            if (requiredStatuses.includes(doc.data().status)) {
+                totalPending++;
+            }
+        });
+    });
+    
+    return totalPending;
+};
 
     const getMyAssignedJobs = async () => {
         const supportRef = collection(db, 'supportRequests');
@@ -1135,63 +1160,72 @@ const renderApprovals = async () => {
     const isFinance = userData.roles.includes('Finance');
     const isPurchaser = userData.roles.includes('Purchaser');
     const isManager = userData.managedDepartments && userData.managedDepartments.length > 0;
-    const isDirectorOrHR = userData.roles.some(r => ['Director', 'HR'].includes(r));
+    const isDirector = userData.roles.includes('Director');
     
     try {
-        let finalHtml = '';
-        const approvalPromises = [];
-
-        // --- Build Queries Based on User Roles ---
-
-        // 1. For Managers: Fetch PENDING requests in their departments
-        if (isManager || isDirectorOrHR) {
-            const deptsToQuery = isDirectorOrHR ? appConfig.availableDepartments : userData.managedDepartments;
-            
-            if (deptsToQuery && deptsToQuery.length > 0) {
-                 // Leave/OT Requests
-                approvalPromises.push(getDocs(query(collection(db, 'requests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQuery))).then(snap => ({type: 'requests', docs: snap.docs})));
-                // Claims
-                approvalPromises.push(getDocs(query(collection(db, 'claims'), where('status', '==', 'Pending'), where('department', 'in', deptsToQuery))).then(snap => ({type: 'claims', docs: snap.docs})));
-                // Purchase Requests
-                approvalPromises.push(getDocs(query(collection(db, 'purchaseRequests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQuery))).then(snap => ({type: 'purchaseRequests', docs: snap.docs})));
-            }
-        }
-
-// 2. For Finance: Fetch APPROVED claims from their managed departments
-if (isFinance) {
-    const deptsToView = userData.managedDepartments || [];
-    if (deptsToView.length > 0) {
-        const q = query(collection(db, 'claims'), where('status', '==', 'Approved'), where('department', 'in', deptsToView));
-        approvalPromises.push(getDocs(q).then(snap => ({type: 'claims', docs: snap.docs})));
-    }
-}
-// 3. For Purchasers: Fetch APPROVED or PROCESSING purchase requests from their managed departments
-if (isPurchaser) {
-    const deptsToView = userData.managedDepartments || [];
-    if (deptsToView.length > 0) {
-        const q = query(collection(db, 'purchaseRequests'), where('status', 'in', ['Approved', 'Processing']), where('department', 'in', deptsToView));
-        approvalPromises.push(getDocs(q).then(snap => ({type: 'purchaseRequests', docs: snap.docs})));
-    }
-}
-
-        const results = await Promise.all(approvalPromises);
-        
         const sections = {
             requests: { title: 'Leave / OT Requests', items: [] },
             claims: { title: 'Expense Claims', items: [] },
             purchaseRequests: { title: 'Purchase Requests', items: [] },
         };
+        const managedDepts = userData.managedDepartments || [];
+        const deptsToQueryForManager = isDirector ? appConfig.availableDepartments : managedDepts;
 
-        results.forEach(result => {
-            result.docs.forEach(doc => {
-                // Prevent duplicates if a user has multiple roles (e.g., Manager and Finance)
-                const itemExists = sections[result.type].items.some(item => item.id === doc.id);
-                if (!itemExists) {
-                    sections[result.type].items.push({ id: doc.id, ...doc.data() });
+        // --- START: NEW SEQUENTIAL LOADING LOGIC ---
+
+        // 1. Load pending Leave/OT requests
+        if ((isManager || isDirector) && deptsToQueryForManager.length > 0) {
+            const reqSnap = await getDocs(query(collection(db, 'requests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQueryForManager)));
+            reqSnap.docs.forEach(doc => sections.requests.items.push({ id: doc.id, ...doc.data() }));
+        }
+
+        // 2. Load pending Claims
+        if ((isManager || isDirector) && deptsToQueryForManager.length > 0) {
+            const claimsSnap = await getDocs(query(collection(db, 'claims'), where('status', '==', 'Pending'), where('department', 'in', deptsToQueryForManager)));
+            claimsSnap.docs.forEach(doc => sections.claims.items.push({ id: doc.id, ...doc.data() }));
+        }
+        
+        // 3. Load pending Purchase Requests for Managers (if not a purchaser)
+        if ((isManager || isDirector) && !isPurchaser && deptsToQueryForManager.length > 0) {
+             const prSnap = await getDocs(query(collection(db, 'purchaseRequests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQueryForManager)));
+             prSnap.docs.forEach(doc => sections.purchaseRequests.items.push({ id: doc.id, ...doc.data() }));
+        }
+
+        // 4. Load approved Claims for Finance
+        if (isFinance && managedDepts.length > 0) {
+            const finClaimsSnap = await getDocs(query(collection(db, 'claims'), where('status', '==', 'Approved'), where('department', 'in', managedDepts)));
+            finClaimsSnap.docs.forEach(doc => {
+                 if (!sections.claims.items.some(item => item.id === doc.id)) {
+                    sections.claims.items.push({ id: doc.id, ...doc.data() });
                 }
             });
-        });
+        }
 
+        // 5. Load approved/processing Purchase Requests for Purchasers (with chunking)
+        if (isPurchaser && managedDepts.length > 0) {
+            const purchaseRef = collection(db, 'purchaseRequests');
+            const requiredStatuses = ['Approved', 'Processing'];
+            const CHUNK_SIZE = 30;
+            const deptChunks = [];
+            for (let i = 0; i < managedDepts.length; i += CHUNK_SIZE) {
+                deptChunks.push(managedDepts.slice(i, i + CHUNK_SIZE));
+            }
+            const chunkPromises = deptChunks.map(chunk => getDocs(query(purchaseRef, where('department', 'in', chunk))));
+            const querySnapshots = await Promise.all(chunkPromises);
+
+            querySnapshots.forEach(snapshot => {
+                snapshot.forEach(doc => {
+                    if (requiredStatuses.includes(doc.data().status)) {
+                        if (!sections.purchaseRequests.items.some(item => item.id === doc.id)) {
+                           sections.purchaseRequests.items.push({ id: doc.id, ...doc.data() });
+                        }
+                    }
+                });
+            });
+        }
+        // --- END: NEW SEQUENTIAL LOADING LOGIC ---
+
+        let finalHtml = '';
         for (const key in sections) {
             const section = sections[key];
             if (section.items.length > 0) {
@@ -1201,7 +1235,6 @@ if (isPurchaser) {
                     if (key === 'requests') summary = `${item.type} for ${item.hours} hours`;
                     if (key === 'claims') summary = `${item.claimType} for RM${item.amount.toFixed(2)}`;
                     if (key === 'purchaseRequests') summary = `${item.itemDescription}`;
-                    
                     finalHtml += `
                         <div class="bg-gray-50 p-4 rounded-lg flex items-center justify-between">
                             <div>
@@ -1225,10 +1258,9 @@ if (isPurchaser) {
 
     } catch (error) {
         console.error("Error fetching approvals:", error);
-        contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading approvals. A Firestore index may be required.</div>`;
+        contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading approvals: ${error.message}</div>`;
     }
 };
-
 
 const renderSupport = async () => {
     pageTitle.textContent = 'Support Requests';
