@@ -4299,64 +4299,75 @@ const closeCompletePurchaseModal = () => {
     completePurchaseModal.classList.add('hidden');
 };
 
+// in app.js
 const handleCompletePurchaseSubmit = async (e) => {
     e.preventDefault();
     const submitButton = e.target.querySelector('button[type="submit"]');
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
 
-    const requestId = document.getElementById('complete-purchase-request-id').value;
-    const receiptFile = document.getElementById('purchase-receipt-upload').files[0];
-    const updateData = {
-        actualCost: parseFloat(document.getElementById('purchase-actual-cost').value),
-        purchaserNotes: document.getElementById('purchaser-notes').value,
-        status: 'Completed',
-        processedBy: currentUser.email
-    };
+    try {
+        const requestId = document.getElementById('complete-purchase-request-id').value;
+        const receiptFile = document.getElementById('purchase-receipt-upload').files[0];
+        const updateData = {
+            actualCost: parseFloat(document.getElementById('purchase-actual-cost').value),
+            purchaserNotes: document.getElementById('purchaser-notes').value,
+            status: 'Completed',
+            processedBy: currentUser.email
+        };
 
-    if (!updateData.actualCost || !receiptFile || !updateData.purchaserNotes) {
-        alert("Please fill out all fields and upload a receipt.");
-        submitButton.disabled = false;
-        submitButton.innerHTML = 'Save & Complete Purchase';
-        return;
-    }
-
-    const progressIndicator = document.getElementById('purchase-upload-progress');
-    const filePath = `purchase-receipts/${currentUser.uid}/${Date.now()}_${receiptFile.name}`;
-    const storageRef = ref(storage, filePath);
-    const uploadTask = uploadBytesResumable(storageRef, receiptFile);
-
-    uploadTask.on('state_changed',
-        (snapshot) => {
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            progressIndicator.textContent = `Upload is ${progress.toFixed(0)}% done`;
-        },
-        (error) => {
-            console.error("Upload failed:", error);
-            alert("Receipt upload failed. Please try again.");
+        if (!updateData.actualCost || !receiptFile || !updateData.purchaserNotes) {
+            alert("Please fill out all fields and upload a receipt.");
+            // No finally needed here as we return early
             submitButton.disabled = false;
             submitButton.innerHTML = 'Save & Complete Purchase';
-        },
-        async () => {
-            try {
-                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                updateData.purchaseReceiptUrl = downloadURL; // Use the field name from your data structure
-
-                const requestRef = doc(db, 'purchaseRequests', requestId);
-                await updateDoc(requestRef, updateData);
-
-                alert('Purchase request completed successfully!');
-                closeCompletePurchaseModal();
-                closeRequestDetailsModal(); // Close the underlying details modal as well
-                navigateTo('approvals'); // Refresh the approvals list
-            } catch (dbError) {
-                console.error("Error saving purchase completion data:", dbError);
-                alert("Failed to save purchase details.");
-                submitButton.disabled = false;
-                submitButton.innerHTML = 'Save & Complete Purchase';
-            }
+            return;
         }
-    );
+
+        const progressIndicator = document.getElementById('purchase-upload-progress');
+        const filePath = `purchase-receipts/${currentUser.uid}/${Date.now()}_${receiptFile.name}`;
+        const storageRef = ref(storage, filePath);
+        const uploadTask = uploadBytesResumable(storageRef, receiptFile);
+
+        await new Promise((resolve, reject) => {
+             uploadTask.on('state_changed',
+                (snapshot) => {
+                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                    progressIndicator.textContent = `Upload is ${progress.toFixed(0)}% done`;
+                },
+                (error) => {
+                    console.error("Upload failed:", error);
+                    alert("Receipt upload failed. Please try again.");
+                    reject(error);
+                },
+                async () => {
+                    try {
+                        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                        updateData.purchaseReceiptUrl = downloadURL;
+                        const requestRef = doc(db, 'purchaseRequests', requestId);
+                        await updateDoc(requestRef, updateData);
+
+                        alert('Purchase request completed successfully!');
+                        closeCompletePurchaseModal();
+                        closeRequestDetailsModal();
+                        navigateTo('approvals');
+                        resolve();
+                    } catch (dbError) {
+                        console.error("Error saving purchase completion data:", dbError);
+                        alert("Failed to save purchase details.");
+                        reject(dbError);
+                    }
+                }
+            );
+        });
+    } catch (error) {
+        // Errors are handled inside the promise, but this catch is a safety net
+        console.error("Error in handleCompletePurchaseSubmit:", error);
+    } finally {
+        // This block ensures the button is ALWAYS reset.
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Save & Complete Purchase';
+    }
 };
 
 // in app.js
@@ -4409,75 +4420,73 @@ const handleAnnouncementSubmit = async (e) => {
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Posting...';
 
-    // 1. Get all form values, including the file
-    const title = document.getElementById('announcement-title').value.trim();
-    const content = document.getElementById('announcement-content').value.trim();
-    const videoUrl = document.getElementById('announcement-video-link').value.trim();
-    const imageFile = document.getElementById('announcement-image').files[0];
-    const targetDepartments = Array.from(document.getElementById('announcement-departments').selectedOptions).map(opt => opt.value);
+    try {
+        const title = document.getElementById('announcement-title').value.trim();
+        const content = document.getElementById('announcement-content').value.trim();
+        const videoUrl = document.getElementById('announcement-video-link').value.trim();
+        const imageFile = document.getElementById('announcement-image').files[0];
+        const targetDepartments = Array.from(document.getElementById('announcement-departments').selectedOptions).map(opt => opt.value);
 
-    if (!title || !content || targetDepartments.length === 0) {
-        alert("Please fill out all required fields.");
-        submitButton.disabled = false;
-        submitButton.textContent = 'Post Announcement';
-        return;
-    }
+        if (!title || !content || targetDepartments.length === 0) {
+            alert("Please fill out all fields.");
+            // No finally needed here as we return early
+            submitButton.disabled = false;
+            submitButton.textContent = 'Post Announcement';
+            return;
+        }
 
-    const newAnnouncement = {
-        title: title,
-        content: content,
-        videoUrl: videoUrl || null,
-        imageUrl: null, // Initialize imageUrl as null
-        targetDepartments: targetDepartments,
-        creatorId: currentUser.email,
-        creatorName: userData.name,
-        createdAt: serverTimestamp()
-    };
-    
-    // 2. Define a helper function to save the data to Firestore
-    const saveAnnouncementToFirestore = async () => {
-        try {
+        const newAnnouncement = {
+            title: title,
+            content: content,
+            videoUrl: videoUrl || null,
+            imageUrl: null,
+            targetDepartments: targetDepartments,
+            creatorId: currentUser.email,
+            creatorName: userData.name,
+            createdAt: serverTimestamp()
+        };
+        
+        const saveAnnouncementToFirestore = async () => {
             await addDoc(collection(db, 'announcements'), newAnnouncement);
             alert('Announcement posted successfully!');
             closeAnnouncementModal();
             navigateTo('dashboard');
-        } catch (error) {
-            console.error("Error posting announcement:", error);
-            alert(`Failed to post announcement: ${error.message}`);
-            submitButton.disabled = false;
-            submitButton.textContent = 'Post Announcement';
+        };
+
+        if (imageFile) {
+            const progressIndicator = document.getElementById('announcement-upload-progress');
+            const storagePath = `announcement-images/${Date.now()}-${imageFile.name}`;
+            const storageRef = ref(storage, storagePath);
+            const uploadTask = uploadBytesResumable(storageRef, imageFile);
+
+            await new Promise((resolve, reject) => {
+                uploadTask.on('state_changed',
+                    (snapshot) => {
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        progressIndicator.textContent = `Image Upload: ${progress.toFixed(0)}% done`;
+                    },
+                    (error) => {
+                        console.error("Image upload failed:", error);
+                        alert("Image upload failed. Please try again.");
+                        reject(error);
+                    },
+                    async () => {
+                        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                        newAnnouncement.imageUrl = downloadURL;
+                        await saveAnnouncementToFirestore();
+                        resolve();
+                    }
+                );
+            });
+        } else {
+            await saveAnnouncementToFirestore();
         }
-    };
-
-    // 3. Check if an image was selected for upload
-    if (imageFile) {
-        const progressIndicator = document.getElementById('announcement-upload-progress');
-        const storagePath = `announcement-images/${Date.now()}-${imageFile.name}`;
-        const storageRef = ref(storage, storagePath);
-        const uploadTask = uploadBytesResumable(storageRef, imageFile);
-
-        // Listen for state changes, errors, and completion of the upload.
-        uploadTask.on('state_changed',
-            (snapshot) => {
-                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                progressIndicator.textContent = `Image Upload: ${progress.toFixed(0)}% done`;
-            },
-            (error) => {
-                console.error("Image upload failed:", error);
-                alert("Image upload failed. Please try again.");
-                submitButton.disabled = false;
-                submitButton.textContent = 'Post Announcement';
-            },
-            async () => {
-                // Upload completed successfully, now get the download URL
-                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                newAnnouncement.imageUrl = downloadURL; // Add the URL to our object
-                await saveAnnouncementToFirestore(); // Save everything to Firestore
-            }
-        );
-    } else {
-        // If no image, save the announcement data directly
-        await saveAnnouncementToFirestore();
+    } catch (error) {
+        console.error("Error in handleAnnouncementSubmit:", error);
+    } finally {
+        // This block ensures the button is ALWAYS reset.
+        submitButton.disabled = false;
+        submitButton.textContent = 'Post Announcement';
     }
 };
 
