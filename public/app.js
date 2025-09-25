@@ -3926,73 +3926,78 @@ const handleSupportSubmit = async (e) => {
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Submitting...';
 
-    const assigneeEmail = document.getElementById('support-assign-to').value;
-    const subject = document.getElementById('support-subject').value.trim();
-    const description = document.getElementById('support-description').value.trim();
-    const attachmentLink = document.getElementById('support-link').value.trim();
-    const file = document.getElementById('support-file').files[0];
+    try {
+        const assigneeEmail = document.getElementById('support-assign-to').value;
+        const subject = document.getElementById('support-subject').value.trim();
+        const description = document.getElementById('support-description').value.trim();
+        const attachmentLink = document.getElementById('support-link').value.trim();
+        const file = document.getElementById('support-file').files[0];
 
-    if (!assigneeEmail || !subject || !description) {
-        alert("Please fill out all required fields.");
-        submitButton.disabled = false;
-        submitButton.textContent = 'Submit Request';
-        return;
-    }
-    
-    const assignee = allUsers.find(user => user.email === assigneeEmail);
-    const newSupportRequest = {
-        requesterId: currentUser.email,
-        requesterName: userData.name,
-        department: userData.primaryDepartment,
-        assigneeId: assignee.email,
-        assigneeName: assignee.name,
-        subject: subject,
-        description: description,
-        attachmentLink: attachmentLink || null,
-        fileUrl: null, // Initialize as null
-        status: 'Open',
-        createdAt: serverTimestamp()
-    };
+        if (!assigneeEmail || !subject || !description) {
+            alert("Please fill out all required fields.");
+            // No need for 'finally' here as we return early
+            submitButton.disabled = false;
+            submitButton.textContent = 'Submit Request';
+            return;
+        }
+        
+        const assignee = allUsers.find(user => user.email === assigneeEmail);
+        const newSupportRequest = {
+            requesterId: currentUser.email,
+            requesterName: userData.name,
+            department: userData.primaryDepartment,
+            assigneeId: assignee.email,
+            assigneeName: assignee.name,
+            subject: subject,
+            description: description,
+            attachmentLink: attachmentLink || null,
+            fileUrl: null,
+            status: 'Open',
+            createdAt: serverTimestamp()
+        };
 
-    const saveTicketToFirestore = async () => {
-        try {
+        const saveTicketToFirestore = async () => {
             await addDoc(collection(db, 'supportRequests'), newSupportRequest);
             alert('Support request submitted successfully!');
             closeSupportModal();
             navigateTo('support');
-        } catch (error) {
-            console.error("Error submitting support request:", error);
-            alert("Failed to submit support request.");
-            submitButton.disabled = false;
-            submitButton.textContent = 'Submit Request';
+        };
+
+        if (file) {
+            const progressIndicator = document.getElementById('support-upload-progress');
+            const storagePath = `support-ticket-attachments/${currentUser.uid}/${Date.now()}-${file.name}`;
+            const storageRef = ref(storage, storagePath);
+            const uploadTask = uploadBytesResumable(storageRef, file);
+
+            await new Promise((resolve, reject) => {
+                uploadTask.on('state_changed',
+                    (snapshot) => {
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        progressIndicator.textContent = `Upload: ${progress.toFixed(0)}% done`;
+                    },
+                    (error) => {
+                        console.error("File upload failed:", error);
+                        alert("File upload failed. Please try again.");
+                        reject(error);
+                    },
+                    async () => {
+                        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                        newSupportRequest.fileUrl = downloadURL;
+                        await saveTicketToFirestore();
+                        resolve();
+                    }
+                );
+            });
+        } else {
+            await saveTicketToFirestore();
         }
-    };
-
-    if (file) {
-        const progressIndicator = document.getElementById('support-upload-progress');
-        const storagePath = `support-ticket-attachments/${currentUser.uid}/${Date.now()}-${file.name}`;
-        const storageRef = ref(storage, storagePath);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-
-        uploadTask.on('state_changed',
-            (snapshot) => {
-                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                progressIndicator.textContent = `Upload: ${progress.toFixed(0)}% done`;
-            },
-            (error) => {
-                console.error("File upload failed:", error);
-                alert("File upload failed. Please try again.");
-                submitButton.disabled = false;
-                submitButton.textContent = 'Submit Request';
-            },
-            async () => {
-                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                newSupportRequest.fileUrl = downloadURL;
-                await saveTicketToFirestore();
-            }
-        );
-    } else {
-        await saveTicketToFirestore();
+    } catch (error) {
+        console.error("Error in handleSupportSubmit:", error);
+        // Error is already handled/alerted in nested functions
+    } finally {
+        // This block ensures the button is ALWAYS reset.
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit Request';
     }
 };
 
