@@ -3775,7 +3775,7 @@ const openRequestModal = () => {
 
 const closeRequestModal = () => requestModal.classList.add('hidden');
 
-// Replace the broken handleRequestSubmit function with this corrected version
+// in app.js
 const handleRequestSubmit = async (e) => {
     e.preventDefault();
     const submitButton = e.target.querySelector('button[type="submit"]');
@@ -3797,16 +3797,12 @@ const handleRequestSubmit = async (e) => {
         return;
     }
     
-    // Check if the leave type has a quota and validate against the correct year's balance.
     const selectedTypeConfig = appConfig.requestTypes.find(rt => rt.name === type);
     if (selectedTypeConfig && selectedTypeConfig.hasQuota) {
-        const requestYear = new Date(startDate).getFullYear(); // Get year from the request start date
-
-        // Fetch the correct quota document for the year of the request
+        const requestYear = new Date(startDate).getFullYear();
         const quotaRef = doc(db, 'users', currentUser.email, 'leaveQuotas', String(requestYear));
         const quotaDoc = await getDoc(quotaRef);
         const quotaDataForYear = quotaDoc.exists() ? quotaDoc.data() : {};
-
         const quotaKey = `edit-${type.toLowerCase().replace(/ /g, '-')}`;
         const takenKey = `${quotaKey}-taken`;
         const quota = quotaDataForYear[quotaKey] || 0;
@@ -3829,7 +3825,6 @@ const handleRequestSubmit = async (e) => {
         documentUrl: null
     };
 
-    // Define the saveRequest helper function ONCE.
     const saveRequest = async () => {
         try {
             await addDoc(collection(db, 'requests'), newRequest);
@@ -3844,7 +3839,6 @@ const handleRequestSubmit = async (e) => {
         }
     };
 
-    // Logic for handling file upload (if it exists) or saving directly.
     if (documentFile) {
         const progressIndicator = document.getElementById('request-upload-progress');
         const filePath = `leave-documents/${currentUser.uid}/${Date.now()}_${documentFile.name}`;
@@ -3865,10 +3859,20 @@ const handleRequestSubmit = async (e) => {
             async () => {
                 newRequest.documentUrl = await getDownloadURL(uploadTask.snapshot.ref);
                 await saveRequest();
+                // --- START: FIX ---
+                // Reset button state after a successful upload and save
+                submitButton.disabled = false;
+                submitButton.innerHTML = 'Submit Request';
+                // --- END: FIX ---
             }
         );
     } else {
         await saveRequest();
+        // --- START: FIX ---
+        // Reset button state after a successful save without an upload
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Submit Request';
+        // --- END: FIX ---
     }
 };
 
