@@ -4247,28 +4247,29 @@ const openPurchaseRequestModal = () => {
 
 const closePurchaseRequestModal = () => purchaseRequestModal.classList.add('hidden');
 
+// in app.js
 const handlePurchaseRequestSubmit = async (e) => {
     e.preventDefault();
     const submitButton = e.target.querySelector('button[type="submit"]');
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Submitting...';
 
-    const newPurchaseRequest = {
-        userId: currentUser.email,
-        userName: userData.name,
-        department: userData.primaryDepartment,
-        itemDescription: document.getElementById('purchase-item').value,
-        quantity: parseInt(document.getElementById('purchase-quantity').value, 10),
-        estimatedCost: parseFloat(document.getElementById('purchase-cost').value),
-        productLink: document.getElementById('purchase-link').value,
-        justification: document.getElementById('purchase-justification').value,
-        status: 'Pending',
-        createdAt: serverTimestamp(),
-        approvedBy: null,
-        processedBy: null
-    };
-
     try {
+        const newPurchaseRequest = {
+            userId: currentUser.email,
+            userName: userData.name,
+            department: userData.primaryDepartment,
+            itemDescription: document.getElementById('purchase-item').value,
+            quantity: parseInt(document.getElementById('purchase-quantity').value, 10),
+            estimatedCost: parseFloat(document.getElementById('purchase-cost').value),
+            productLink: document.getElementById('purchase-link').value,
+            justification: document.getElementById('purchase-justification').value,
+            status: 'Pending',
+            createdAt: serverTimestamp(),
+            approvedBy: null,
+            processedBy: null
+        };
+
         await addDoc(collection(db, 'purchaseRequests'), newPurchaseRequest);
         alert('Purchase request submitted successfully!');
         closePurchaseRequestModal();
@@ -4276,6 +4277,8 @@ const handlePurchaseRequestSubmit = async (e) => {
     } catch (error) {
         console.error("Error submitting purchase request:", error);
         alert("Failed to submit purchase request.");
+    } finally {
+        // This block ensures the button is ALWAYS reset.
         submitButton.disabled = false;
         submitButton.innerHTML = 'Submit Request';
     }
