@@ -422,10 +422,10 @@ exports.correctAttendanceRecord = onCall({
 // =================================================================================
 // HTTPS CALLABLE FUNCTION: generatePayrollReport (NEW)
 // =================================================================================
-// Replace the entire generatePayrollReport function with this new version
-// Replace the entire existing generatePayrollReport function with this one
+// in functions/index.js
 exports.generatePayrollReport = onCall({
-    timeoutSeconds: 60,
+    timeoutSeconds: 300, // Increased timeout for larger reports
+    memory: '512MiB',    // Increased memory for larger reports
 }, async (request) => {
     // 1. --- AUTHENTICATION & ROLE CHECK ---
     if (!request.auth) {
@@ -450,7 +450,7 @@ exports.generatePayrollReport = onCall({
         throw new HttpsError('invalid-argument', 'Cannot process more than 50 users at a time.');
     }
 
-    // 3. --- NEW SERVER-SIDE PERMISSION VALIDATION ---
+    // 3. --- SERVER-SIDE PERMISSION VALIDATION ---
     if (!isDirector) { // This block runs only for HR and HR Head
         console.log(`Validating request for HR user: ${requesterEmail}`);
         const requesterDoc = await db.collection('users').doc(requesterEmail).get();
@@ -462,20 +462,17 @@ exports.generatePayrollReport = onCall({
             throw new HttpsError('permission-denied', 'You are not assigned to manage any departments.');
         }
 
-        // Now, check that every user in the report request is in a department managed by the HR user.
         const usersToReportOnSnap = await db.collection('users').where(admin.firestore.FieldPath.documentId(), 'in', userIds).get();
-
         for (const userDoc of usersToReportOnSnap.docs) {
             const userData = userDoc.data();
             if (!managedDepartments.includes(userData.primaryDepartment)) {
-                // If we find even one user who is not in a managed department, block the entire request.
                 throw new HttpsError('permission-denied', `Access denied. You do not have permission to generate a report for ${userData.name}, who is in the ${userData.primaryDepartment} department.`);
             }
         }
         console.log(`Validation passed for HR user: ${requesterEmail}`);
     }
 
-    // 4. --- BLOCKER: CHECK FOR PENDING EXCEPTIONS (Unchanged) ---
+    // 4. --- BLOCKER: CHECK FOR PENDING EXCEPTIONS ---
     const startDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').startOf('month').format('YYYY-MM-DD');
     const endDateStr = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur').endOf('month').format('YYYY-MM-DD');
 
@@ -492,35 +489,32 @@ exports.generatePayrollReport = onCall({
         throw new HttpsError('failed-precondition', `Cannot generate report. At least one unresolved attendance exception exists for ${pendingException.userName} on ${pendingException.date}. Please resolve all exceptions in the 'Attendance Exceptions' report first.`);
     }
 
-    // 5. --- DATA FETCHING & AGGREGATION (Unchanged) ---
+    // 5. --- DATA FETCHING & AGGREGATION ---
     try {
-        const endOfMonthQueryString = endDateStr + 'T23:59:59';
-        const [configSnap, usersSnap, requestsSnap, claimsSnap, attendanceSnap] = await Promise.all([
-            db.doc('configuration/main').get(),
-            db.collection('users').where('email', 'in', userIds).get(),
-            db.collection('requests').where('userId', 'in', userIds).where('status', '==', 'Approved').where('startDate', '>=', startDateStr).where('startDate', '<=', endOfMonthQueryString).get(),
-            db.collection('claims').where('userId', 'in', userIds).where('status', 'in', ['Approved', 'Paid']).where('expenseDate', '>=', startDateStr).where('expenseDate', '<=', endDateStr).get(),
-            db.collection('attendance').where('userId', 'in', userIds).where('date', '>=', startDateStr).where('date', '<=', endDateStr).get()
-        ]);
-
+        const configSnap = await db.doc('configuration/main').get();
         const appConfig = configSnap.data();
-        const usersData = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const allRequests = requestsSnap.docs.map(doc => doc.data());
-        const allClaims = claimsSnap.docs.map(doc => doc.data());
-        const allAttendance = attendanceSnap.docs.map(doc => doc.data());
-
         const payrollData = [];
         const claimTypesConfig = appConfig.claimTypes || [];
-        const usedAllowanceTypes = new Set();
-        allClaims.forEach(claim => {
-            const claimTypeInfo = claimTypesConfig.find(ct => ct.name === claim.claimType);
-            if (claimTypeInfo && claimTypeInfo.category === 'Allowance') {
-                usedAllowanceTypes.add(claim.claimType);
-            }
-        });
-        const sortedAllowanceTypes = Array.from(usedAllowanceTypes).sort();
 
-        for (const user of usersData) {
+        // --- START: NEW SCALABLE LOGIC ---
+        // Loop through each user individually to keep memory usage low.
+        for (const userId of userIds) {
+            const userDoc = await db.collection('users').doc(userId).get();
+            if (!userDoc.exists) continue; // Skip if user not found
+
+            const user = userDoc.data();
+
+            // Fetch data ONLY for the current user in the loop
+            const endOfMonthQueryString = endDateStr + 'T23:59:59';
+            const requestsSnap = await db.collection('requests').where('userId', '==', userId).where('status', '==', 'Approved').where('startDate', '>=', startDateStr).where('startDate', '<=', endOfMonthQueryString).get();
+            const claimsSnap = await db.collection('claims').where('userId', '==', userId).where('status', 'in', ['Approved', 'Paid']).where('expenseDate', '>=', startDateStr).where('expenseDate', '<=', endDateStr).get();
+            const attendanceSnap = await db.collection('attendance').where('userId', '==', userId).where('date', '>=', startDateStr).where('date', '<=', endDateStr).get();
+            
+            const userRequests = requestsSnap.docs.map(doc => doc.data());
+            const userClaims = claimsSnap.docs.map(doc => doc.data());
+            const userAttendance = attendanceSnap.docs.map(doc => doc.data());
+            
+            // The calculation logic from here is the same as before
             let totalWorkdays = 0;
             let totalAttendDays = 0;
             let paidLeaveHours = 0;
@@ -528,30 +522,35 @@ exports.generatePayrollReport = onCall({
             let ownDeptOtHours = 0;
             let totalAllowances = 0;
             let totalReimbursements = 0;
-            
-            const allowanceDetails = {};
-            sortedAllowanceTypes.forEach(typeName => {
-                allowanceDetails[`${typeName} (RM)`] = 0;
-            });
 
+            const usedAllowanceTypes = new Set();
+            userClaims.forEach(claim => {
+                const claimTypeInfo = claimTypesConfig.find(ct => ct.name === claim.claimType);
+                if (claimTypeInfo && claimTypeInfo.category === 'Allowance') {
+                    usedAllowanceTypes.add(claim.claimType);
+                }
+            });
+            const sortedAllowanceTypes = Array.from(usedAllowanceTypes).sort();
+            const allowanceDetails = {};
+            sortedAllowanceTypes.forEach(typeName => { allowanceDetails[`${typeName} (RM)`] = 0; });
+            
+            const userSchedule = user.workSchedule || {};
             const monthStart = moment.tz({ year, month: month - 1, day: 1 }, 'Asia/Kuala_Lumpur');
             const daysInMonth = monthStart.daysInMonth();
             for (let day = 1; day <= daysInMonth; day++) {
                 const currentDate = moment.tz({ year, month: month - 1, day }, 'Asia/Kuala_Lumpur');
                 const dayOfWeek = currentDate.format('dddd');
-                if (user.workSchedule && user.workSchedule[dayOfWeek] && user.workSchedule[dayOfWeek].active) {
+                if (userSchedule[dayOfWeek] && userSchedule[dayOfWeek].active) {
                     totalWorkdays++;
                 }
             }
             
-            const userAttendance = allAttendance.filter(att => att.userId === user.email);
             totalAttendDays = userAttendance.length;
 
-            const userRequests = allRequests.filter(req => req.userId === user.email);
             for (const req of userRequests) {
                 const reqTypeConfig = (appConfig.requestTypes || []).find(rt => rt.name === req.type);
                 if (!reqTypeConfig) continue;
-                if (req.type.toLowerCase().includes('overtime')) {
+                if (req.type?.toLowerCase().includes('overtime')) {
                     ownDeptOtHours += req.hours;
                 } else {
                     if (reqTypeConfig.isPaidLeave) { paidLeaveHours += req.hours; } 
@@ -559,7 +558,6 @@ exports.generatePayrollReport = onCall({
                 }
             }
             
-            const userClaims = allClaims.filter(claim => claim.userId === user.email);
             for (const claim of userClaims) {
                 const claimTypeInfo = claimTypesConfig.find(ct => ct.name === claim.claimType);
                 if (claimTypeInfo && claimTypeInfo.category === 'Allowance') {
@@ -583,6 +581,7 @@ exports.generatePayrollReport = onCall({
                 'Total_Reimbursements_RM': parseFloat(totalReimbursements.toFixed(2))
             });
         }
+        // --- END: NEW SCALABLE LOGIC ---
 
         return payrollData;
     } catch (error) {
