@@ -795,7 +795,11 @@ const renderMyDocuments = async () => {
 const renderAttendance = async () => {
     pageTitle.textContent = 'Attendance';
     contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow">Loading attendance...</div>`;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const today = new Date();
+const year = today.getFullYear();
+const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+const day = String(today.getDate()).padStart(2, '0');
+const todayStr = `${year}-${month}-${day}`;
     let todayRecord = null;
     let statusHTML = '', actionButtonHTML = '';
     const qToday = query(collection(db, 'attendance'), where('userId', '==', currentUser.email), where('date', '==', todayStr), limit(1));
