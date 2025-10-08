@@ -591,6 +591,7 @@ exports.generatePayrollReport = onCall({
 });
 
 // --- HELPER FUNCTION containing the core logic (Upgraded) ---
+// in functions/index.js
 const runAttendanceCheckLogic = async () => {
     console.log('--- Running Daily Attendance Check Logic ---');
     const today = moment().tz('Asia/Kuala_Lumpur');
@@ -598,25 +599,20 @@ const runAttendanceCheckLogic = async () => {
     const dayOfWeek = today.format('dddd');
 
     try {
-        // --- START OF NEW CALENDAR LOGIC ---
-        // 1. Check for any non-working day rules for today.
         const holidayRef = db.collection('companyCalendar').doc(todayStr);
         const holidayDoc = await holidayRef.get();
         let holidayDepts = [];
 
         if (holidayDoc.exists) {
             const holidayData = holidayDoc.data();
-            // Check if it's a holiday for ALL departments
             if (holidayData.appliesTo && holidayData.appliesTo.includes('__ALL__')) {
-                console.log(`Today (${todayStr}) is a global non-working day. Reason: ${holidayData.description}. Skipping all attendance checks.`);
-                return; // Exit the function early if it's a holiday for everyone.
+                console.log(`Today (${todayStr}) is a global non-working day. Skipping all attendance checks.`);
+                return;
             } else if (holidayData.appliesTo) {
-                // Otherwise, store the list of departments that have the day off
                 holidayDepts = holidayData.appliesTo;
                 console.log(`Today (${todayStr}) is a non-working day for depts: ${holidayDepts.join(', ')}`);
             }
         }
-        // --- END OF NEW CALENDAR LOGIC ---
 
         const usersSnapshot = await db.collection('users')
             .where('status', '==', 'active')
@@ -647,18 +643,15 @@ const runAttendanceCheckLogic = async () => {
         });
 
         const batch = db.batch();
-        let absentCount = 0, lateCount = 0, missedCheckoutCount = 0;
+        let absentCount = 0, lateCount = 0, missedCheckoutCount = 0, earlyCheckoutCount = 0;
         for (const userDoc of usersSnapshot.docs) {
             const user = userDoc.data();
             const userId = user.email;
 
-            // --- NEW CHECK INSIDE THE LOOP ---
-            // 2. Skip this user if it's a designated non-working day for their department.
             if (holidayDepts.includes(user.primaryDepartment)) {
-                console.log(`Skipping attendance check for ${user.name} because it is a designated non-working day for the ${user.primaryDepartment} department.`);
-                continue; // Go to the next user
+                console.log(`Skipping attendance check for ${user.name} due to department holiday.`);
+                continue;
             }
-            // --- END OF NEW CHECK INSIDE THE LOOP ---
 
             const attendanceRecord = attendanceMap.get(userId);
             const leaveRecord = leaveMap.get(userId);
@@ -671,11 +664,6 @@ const runAttendanceCheckLogic = async () => {
                     date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
                     type: 'Absent', details: 'No check-in record and no approved leave.', status: 'Pending',
                     acknowledged: false
-                });
-                const notificationRef = db.collection('users').doc(userId).collection('notifications').doc();
-                batch.set(notificationRef, {
-                    type: 'AttendanceAlert', message: `You were marked as absent on ${todayStr}. Please apply for leave or contact your manager.`,
-                    createdAt: FieldValue.serverTimestamp(), read: false
                 });
                 absentCount++;
                 continue;
@@ -696,30 +684,39 @@ const runAttendanceCheckLogic = async () => {
                     lateCount++;
                 }
             }
-            if (!attendanceRecord.checkOutTime) {
+
+            // --- START: NEW EARLY CHECK-OUT LOGIC ---
+            if (attendanceRecord.checkOutTime && schedule && schedule.checkOut) {
+                const checkOutTime = moment(attendanceRecord.checkOutTime.toDate()).tz('Asia/Kuala_Lumpur');
+                const expectedCheckOutTime = moment(`${todayStr} ${schedule.checkOut}`, 'YYYY-MM-DD HH:mm').tz('Asia/Kuala_Lumpur');
+                if (checkOutTime.isBefore(expectedCheckOutTime)) {
+                    const exceptionRef = db.collection('attendanceExceptions').doc();
+                    batch.set(exceptionRef, {
+                        date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
+                        type: 'EarlyCheckout', details: `Checked out at ${checkOutTime.format('HH:mm')} instead of ${schedule.checkOut}.`, status: 'Pending',
+                        acknowledged: false
+                    });
+                    earlyCheckoutCount++;
+                }
+            } 
+            // --- END: NEW EARLY CHECK-OUT LOGIC ---
+            else if (!attendanceRecord.checkOutTime) {
                 const exceptionRef = db.collection('attendanceExceptions').doc();
                 batch.set(exceptionRef, {
                     date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
                     type: 'MissedCheckout', details: 'User checked in but did not check out.', status: 'Pending',
                     acknowledged: false
                 });
-                const notificationRef = db.collection('users').doc(userId).collection('notifications').doc();
-                batch.set(notificationRef, {
-                    type: 'AttendanceAlert', message: `You missed your check-out on ${todayStr}. Please remember to check out.`,
-                    createdAt: FieldValue.serverTimestamp(), read: false
-                });
                 missedCheckoutCount++;
             }
         }
-        console.log(`Run Summary: ${absentCount} Absent, ${lateCount} Late, ${missedCheckoutCount} Missed Checkouts.`);
+        console.log(`Run Summary: ${absentCount} Absent, ${lateCount} Late, ${earlyCheckoutCount} Early Checkouts, ${missedCheckoutCount} Missed Checkouts.`);
         await batch.commit();
         console.log('Successfully processed daily attendance.');
     } catch (error) {
         console.error('Error processing daily attendance:', error);
     }
 };
-
-
 
 // =================================================================================
 // SCHEDULED FUNCTION 2: processDailyAttendance (This was already v2)
