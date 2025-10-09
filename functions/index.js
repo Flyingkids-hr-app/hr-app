@@ -610,7 +610,6 @@ const runAttendanceCheckLogic = async () => {
                 return;
             } else if (holidayData.appliesTo) {
                 holidayDepts = holidayData.appliesTo;
-                console.log(`Today (${todayStr}) is a non-working day for depts: ${holidayDepts.join(', ')}`);
             }
         }
 
@@ -627,9 +626,7 @@ const runAttendanceCheckLogic = async () => {
         const attendanceSnapshot = await db.collection('attendance').where('date', '==', todayStr).get();
         const leaveSnapshot = await db.collection('requests').where('status', '==', 'Approved').get();
 
-        const attendanceMap = new Map();
-        attendanceSnapshot.forEach(doc => attendanceMap.set(doc.data().userId, doc.data()));
-
+        const attendanceMap = new Map(attendanceSnapshot.docs.map(doc => [doc.data().userId, doc.data()]));
         const leaveMap = new Map();
         leaveSnapshot.forEach(doc => {
             const request = doc.data();
@@ -648,10 +645,7 @@ const runAttendanceCheckLogic = async () => {
             const user = userDoc.data();
             const userId = user.email;
 
-            if (holidayDepts.includes(user.primaryDepartment)) {
-                console.log(`Skipping attendance check for ${user.name} due to department holiday.`);
-                continue;
-            }
+            if (holidayDepts.includes(user.primaryDepartment)) continue;
 
             const attendanceRecord = attendanceMap.get(userId);
             const leaveRecord = leaveMap.get(userId);
@@ -673,7 +667,9 @@ const runAttendanceCheckLogic = async () => {
 
             if (schedule && schedule.checkIn) {
                 const checkInTime = moment(attendanceRecord.checkInTime.toDate()).tz('Asia/Kuala_Lumpur');
-                const expectedCheckInTime = moment(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm').tz('Asia/Kuala_Lumpur');
+                // --- FIX 1: Correctly parse the time in the specified timezone ---
+                const expectedCheckInTime = moment.tz(`${todayStr} ${schedule.checkIn}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
+                
                 if (checkInTime.isAfter(expectedCheckInTime)) {
                     const exceptionRef = db.collection('attendanceExceptions').doc();
                     batch.set(exceptionRef, {
@@ -685,10 +681,11 @@ const runAttendanceCheckLogic = async () => {
                 }
             }
 
-            // --- START: NEW EARLY CHECK-OUT LOGIC ---
             if (attendanceRecord.checkOutTime && schedule && schedule.checkOut) {
                 const checkOutTime = moment(attendanceRecord.checkOutTime.toDate()).tz('Asia/Kuala_Lumpur');
-                const expectedCheckOutTime = moment(`${todayStr} ${schedule.checkOut}`, 'YYYY-MM-DD HH:mm').tz('Asia/Kuala_Lumpur');
+                // --- FIX 2: Correctly parse the time in the specified timezone ---
+                const expectedCheckOutTime = moment.tz(`${todayStr} ${schedule.checkOut}`, 'YYYY-MM-DD HH:mm', 'Asia/Kuala_Lumpur');
+
                 if (checkOutTime.isBefore(expectedCheckOutTime)) {
                     const exceptionRef = db.collection('attendanceExceptions').doc();
                     batch.set(exceptionRef, {
@@ -698,9 +695,7 @@ const runAttendanceCheckLogic = async () => {
                     });
                     earlyCheckoutCount++;
                 }
-            } 
-            // --- END: NEW EARLY CHECK-OUT LOGIC ---
-            else if (!attendanceRecord.checkOutTime) {
+            } else if (!attendanceRecord.checkOutTime) {
                 const exceptionRef = db.collection('attendanceExceptions').doc();
                 batch.set(exceptionRef, {
                     date: todayStr, userId: userId, userName: user.name, department: user.primaryDepartment,
