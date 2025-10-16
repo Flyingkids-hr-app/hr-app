@@ -4068,23 +4068,17 @@ const handleUpdateSupportStatus = async (e) => {
     try {
         const taskRef = doc(db, 'supportRequests', taskId);
         
-        // --- START: NEW LOGIC ---
-        // First, get the current ticket data to check its existing state
         const taskDoc = await getDoc(taskRef);
         if (!taskDoc.exists()) {
             throw new Error("Ticket not found.");
         }
         const existingTaskData = taskDoc.data();
 
-        // Prepare the data for the update
         const updateData = { status: newStatus };
 
-        // The refined rule: only add a completion date if the ticket is being
-        // finalized for the first time.
         if ((newStatus === 'Completed' || newStatus === 'Closed') && !existingTaskData.completedAt) {
             updateData.completedAt = serverTimestamp();
         }
-        // --- END: NEW LOGIC ---
 
         await updateDoc(taskRef, updateData);
         alert('Support ticket status updated!');
@@ -4093,6 +4087,8 @@ const handleUpdateSupportStatus = async (e) => {
     } catch (error) {
         console.error("Error updating support status:", error);
         alert("Failed to update status.");
+    } finally {
+        // This block ensures the button is ALWAYS reset.
         submitButton.disabled = false;
         submitButton.textContent = 'Save Status';
     }
