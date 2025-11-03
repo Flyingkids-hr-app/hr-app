@@ -3155,13 +3155,16 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
         let bodyHtml = '<div class="space-y-4">';
         let footerHtml = '<button id="view-request-modal-close-button-inner" type="button" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>';
         
+        // --- This is the new line we are adding. It works for all request types. ---
+        const processedAtHtml = data.processedAt ? `<p><strong>Processed On:</strong> ${formatDateTime(data.processedAt.toDate())}</p>` : '';
+
         switch(collectionName) {
             case 'requests':
                 modalTitle.textContent = 'Leave / OT Request Details';
                 bodyHtml += `
                     <p><strong>Applicant:</strong> ${data.userName}</p>
                     <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
-                    <p><strong>Type:</strong> ${data.type}</p>
+                    ${processedAtHtml} <p><strong>Type:</strong> ${data.type}</p>
                     <p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p>
                     <p><strong>Hours Claimed:</strong> ${data.hours}</p>
                     <p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p>
@@ -3175,7 +3178,7 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                 bodyHtml += `
                     <p><strong>Applicant:</strong> ${data.userName}</p>
                     <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
-                    <p><strong>Claim Type:</strong> ${data.claimType}</p>
+                    ${processedAtHtml} <p><strong>Claim Type:</strong> ${data.claimType}</p>
                     <p><strong>Expense Date:</strong> ${formatDate(data.expenseDate)}</p>
                     <p><strong>Amount:</strong> RM${data.amount.toFixed(2)}</p>
                     <p><strong>Description:</strong><br><span class="pl-2">${data.description}</span></p>
@@ -3198,6 +3201,7 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                 bodyHtml += `
                     <p><strong>Applicant:</strong> ${data.userName}</p>
                     <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
+                    ${processedAtHtml} 
                     <p><strong>Item:</strong> ${data.itemDescription}</p>
                     <p><strong>Quantity:</strong> ${data.quantity}</p>
                     <p><strong>Estimated Cost:</strong> RM${data.estimatedCost.toFixed(2)}</p>
@@ -3375,13 +3379,15 @@ const handleMarkAsPaid = async (e) => {
     }
 };
 
+// in app.js
 const handlePurchaseUpdate = async (requestId, newStatus, userField) => {
     if (!confirm(`Are you sure you want to mark this request as ${newStatus}?`)) return;
     try {
         const requestRef = doc(db, 'purchaseRequests', requestId);
         await updateDoc(requestRef, {
             status: newStatus,
-            [userField]: currentUser.email
+            [userField]: currentUser.email,
+            processedAt: serverTimestamp() // <-- ADDED THIS LINE
         });
         alert(`Request marked as ${newStatus}.`);
         closeRequestDetailsModal();
@@ -4357,12 +4363,12 @@ const handleCompletePurchaseSubmit = async (e) => {
             actualCost: parseFloat(document.getElementById('purchase-actual-cost').value),
             purchaserNotes: document.getElementById('purchaser-notes').value,
             status: 'Completed',
-            processedBy: currentUser.email
+            processedBy: currentUser.email,
+            processedAt: serverTimestamp() // <-- ADDED THIS LINE
         };
 
         if (!updateData.actualCost || !receiptFile || !updateData.purchaserNotes) {
             alert("Please fill out all fields and upload a receipt.");
-            // No finally needed here as we return early
             submitButton.disabled = false;
             submitButton.innerHTML = 'Save & Complete Purchase';
             return;
@@ -4389,7 +4395,7 @@ const handleCompletePurchaseSubmit = async (e) => {
                         const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
                         updateData.purchaseReceiptUrl = downloadURL;
                         const requestRef = doc(db, 'purchaseRequests', requestId);
-                        await updateDoc(requestRef, updateData);
+                        await updateDoc(requestRef, updateData); // This now includes processedAt
 
                         alert('Purchase request completed successfully!');
                         closeCompletePurchaseModal();
@@ -4405,10 +4411,8 @@ const handleCompletePurchaseSubmit = async (e) => {
             );
         });
     } catch (error) {
-        // Errors are handled inside the promise, but this catch is a safety net
         console.error("Error in handleCompletePurchaseSubmit:", error);
     } finally {
-        // This block ensures the button is ALWAYS reset.
         submitButton.disabled = false;
         submitButton.innerHTML = 'Save & Complete Purchase';
     }
