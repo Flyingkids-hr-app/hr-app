@@ -522,8 +522,19 @@ const getPurchaserApprovals = async () => {
                                 <p class="font-bold text-gray-800">${announcement.title}</p>
                                 ${announcement.imageUrl ? `<img src="${announcement.imageUrl}" alt="Announcement Image" class="mt-3 rounded-lg max-h-60 w-auto border">` : ''}
                                 <p class="text-sm mt-3 break-all whitespace-pre-wrap text-gray-700">${announcement.content}</p>
-                                ${announcement.videoUrl ? `<a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm"><i class="fas fa-video mr-2"></i>Watch Video</a>` : ''}
-                                <p class="text-xs text-gray-500 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+                                <div class="flex items-center space-x-4 mt-3">
+    ${announcement.videoUrl ? `
+        <a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm">
+            <i class="fas fa-video mr-2"></i>Watch Video
+        </a>
+    ` : ''}
+    ${announcement.attachmentFileUrl ? `
+        <a href="${announcement.attachmentFileUrl}" target="_blank" rel="noopener noreferrer" class="inline-block bg-white text-gray-700 font-semibold py-1 px-3 border border-gray-300 rounded-md hover:bg-gray-50 text-sm">
+            <i class="fas fa-paperclip mr-2"></i>${announcement.attachmentFileName}
+        </a>
+    ` : ''}
+</div>
+<p class="text-xs text-gray-500 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
                             </div>
                             <div class="flex-shrink-0">${buttonHtml}</div>
                         </div>
@@ -705,8 +716,19 @@ const renderAnnouncementsPage = async () => {
                             <p class="font-bold text-gray-800">${announcement.title}</p>
                             ${announcement.imageUrl ? `<img src="${announcement.imageUrl}" alt="Announcement Image" class="mt-3 rounded-lg max-h-60 w-auto border">` : ''}
                             <p class="text-sm mt-3 break-all whitespace-pre-wrap text-gray-700">${announcement.content}</p>
-                            ${announcement.videoUrl ? `<a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block mt-3 bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm"><i class="fas fa-video mr-2"></i>Watch Video</a>` : ''}
-                            <p class="text-xs text-gray-500 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
+                            <div class="flex items-center space-x-4 mt-3">
+    ${announcement.videoUrl ? `
+        <a href="${announcement.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-block bg-white text-blue-600 font-semibold py-1 px-3 border border-blue-300 rounded-md hover:bg-blue-50 text-sm">
+            <i class="fas fa-video mr-2"></i>Watch Video
+        </a>
+    ` : ''}
+    ${announcement.attachmentFileUrl ? `
+        <a href="${announcement.attachmentFileUrl}" target="_blank" rel="noopener noreferrer" class="inline-block bg-white text-gray-700 font-semibold py-1 px-3 border border-gray-300 rounded-md hover:bg-gray-50 text-sm">
+            <i class="fas fa-paperclip mr-2"></i>${announcement.attachmentFileName}
+        </a>
+    ` : ''}
+</div>
+<p class="text-xs text-gray-500 mt-3">Posted by ${announcement.creatorName} on ${formatDate(announcement.createdAt)}</p>
                         </div>
                         <div class="flex-shrink-0">${buttonHtml}</div>
                     </div>
@@ -4420,16 +4442,21 @@ const handleAnnouncementSubmit = async (e) => {
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Posting...';
 
+    const imageProgress = document.getElementById('announcement-upload-progress');
+    const fileProgress = document.getElementById('announcement-file-upload-progress');
+    imageProgress.textContent = '';
+    fileProgress.textContent = '';
+
     try {
         const title = document.getElementById('announcement-title').value.trim();
         const content = document.getElementById('announcement-content').value.trim();
         const videoUrl = document.getElementById('announcement-video-link').value.trim();
         const imageFile = document.getElementById('announcement-image').files[0];
+        const attachmentFile = document.getElementById('announcement-file').files[0]; // New file
         const targetDepartments = Array.from(document.getElementById('announcement-departments').selectedOptions).map(opt => opt.value);
 
         if (!title || !content || targetDepartments.length === 0) {
-            alert("Please fill out all fields.");
-            // No finally needed here as we return early
+            alert("Please fill out all required fields.");
             submitButton.disabled = false;
             submitButton.textContent = 'Post Announcement';
             return;
@@ -4440,51 +4467,71 @@ const handleAnnouncementSubmit = async (e) => {
             content: content,
             videoUrl: videoUrl || null,
             imageUrl: null,
+            attachmentFileUrl: null, // New field
+            attachmentFileName: null, // New field
             targetDepartments: targetDepartments,
             creatorId: currentUser.email,
             creatorName: userData.name,
             createdAt: serverTimestamp()
         };
         
-        const saveAnnouncementToFirestore = async () => {
-            await addDoc(collection(db, 'announcements'), newAnnouncement);
-            alert('Announcement posted successfully!');
-            closeAnnouncementModal();
-            navigateTo('dashboard');
-        };
+        // Helper function for uploading a file
+        const uploadFile = (file, path, progressElement) => {
+            return new Promise((resolve, reject) => {
+                const storagePath = `${path}/${Date.now()}-${file.name}`;
+                const storageRef = ref(storage, storagePath);
+                const uploadTask = uploadBytesResumable(storageRef, file);
 
-        if (imageFile) {
-            const progressIndicator = document.getElementById('announcement-upload-progress');
-            const storagePath = `announcement-images/${Date.now()}-${imageFile.name}`;
-            const storageRef = ref(storage, storagePath);
-            const uploadTask = uploadBytesResumable(storageRef, imageFile);
-
-            await new Promise((resolve, reject) => {
                 uploadTask.on('state_changed',
                     (snapshot) => {
                         const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                        progressIndicator.textContent = `Image Upload: ${progress.toFixed(0)}% done`;
+                        progressElement.textContent = `Upload: ${progress.toFixed(0)}% done`;
                     },
                     (error) => {
-                        console.error("Image upload failed:", error);
-                        alert("Image upload failed. Please try again.");
+                        console.error("Upload failed:", error);
+                        alert(`File upload failed: ${file.name}`);
                         reject(error);
                     },
                     async () => {
                         const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                        newAnnouncement.imageUrl = downloadURL;
-                        await saveAnnouncementToFirestore();
-                        resolve();
+                        resolve({ downloadURL, fileName: file.name });
                     }
                 );
             });
-        } else {
-            await saveAnnouncementToFirestore();
+        };
+
+        // Create upload promises
+        const imageUploadPromise = imageFile 
+            ? uploadFile(imageFile, 'announcement-images', imageProgress) 
+            : Promise.resolve(null);
+            
+        const attachmentUploadPromise = attachmentFile 
+            ? uploadFile(attachmentFile, 'announcement-attachments', fileProgress) 
+            : Promise.resolve(null);
+
+        // Wait for both uploads to complete (if they exist)
+        const [imageResult, attachmentResult] = await Promise.all([
+            imageUploadPromise,
+            attachmentUploadPromise
+        ]);
+
+        if (imageResult) {
+            newAnnouncement.imageUrl = imageResult.downloadURL;
         }
+        if (attachmentResult) {
+            newAnnouncement.attachmentFileUrl = attachmentResult.downloadURL;
+            newAnnouncement.attachmentFileName = attachmentResult.fileName;
+        }
+        
+        // Save the final announcement to Firestore
+        await addDoc(collection(db, 'announcements'), newAnnouncement);
+        alert('Announcement posted successfully!');
+        closeAnnouncementModal();
+        navigateTo('dashboard');
+
     } catch (error) {
         console.error("Error in handleAnnouncementSubmit:", error);
     } finally {
-        // This block ensures the button is ALWAYS reset.
         submitButton.disabled = false;
         submitButton.textContent = 'Post Announcement';
     }
