@@ -2443,6 +2443,7 @@ const renderLeaveReport = () => {
     fetchAllUsersAndRender();
 };
 
+// in app.js
 const renderClaimsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
@@ -2476,7 +2477,7 @@ const renderClaimsReport = () => {
         
         let q = query(collection(db, 'claims'), orderBy('createdAt', 'desc'));
 
-        if (!canSeeAll && (isManager || userData.roles.includes('Finance'))) {
+        if (!canSeeAll) {
             const deptsToView = userData.managedDepartments || [];
             if (deptsToView.length > 0) {
                 q = query(q, where('department', 'in', deptsToView));
@@ -2500,18 +2501,22 @@ const renderClaimsReport = () => {
             const querySnapshot = await getDocs(q);
             const claims = querySnapshot.docs.map(doc => doc.data());
             
+            // --- START: MODIFIED CSV EXPORT ---
             dataForExport = claims.map(claim => ({
                 Employee: claim.userName,
                 Department: claim.department,
+                SubmittedOn: formatDateTime(claim.createdAt.toDate()), // ADDED
                 ClaimType: claim.claimType,
                 ExpenseDate: formatDate(claim.expenseDate),
                 Amount: claim.amount.toFixed(2),
                 Status: claim.status,
-                ApprovedBy: userMap.get(claim.approvedBy) || claim.approvedBy || 'N/A', // NAME LOOKUP
-                PaidBy: userMap.get(claim.processedBy) || claim.processedBy || 'N/A',   // NAME LOOKUP
+                ProcessedOn: claim.processedAt ? formatDateTime(claim.processedAt.toDate()) : 'N/A', // ADDED
+                ApprovedBy: userMap.get(claim.approvedBy) || claim.approvedBy || 'N/A',
+                PaidBy: userMap.get(claim.processedBy) || claim.processedBy || 'N/A',
                 Description: claim.description,
                 ReceiptURL: claim.receiptUrl
             }));
+            // --- END: MODIFIED CSV EXPORT ---
 
             let tableHTML = `
                 <div class="overflow-x-auto">
@@ -2519,10 +2524,10 @@ const renderClaimsReport = () => {
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submitted On</th> <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processed On</th> <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Paid By</th>
                             </tr>
                         </thead>
@@ -2530,19 +2535,19 @@ const renderClaimsReport = () => {
             `;
 
             if (claims.length === 0) {
-                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No claims data found.</td></tr>`;
+                tableHTML += `<tr><td colspan="8" class="p-4 text-center text-gray-500">No claims data found.</td></tr>`; // Updated colspan to 8
             } else {
                 claims.forEach(claim => {
-                    const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-100 text-green-800', Paid: 'bg-blue-100 text-blue-800', Rejected: 'bg-red-100 text-red-800' }[claim.status] || 'bg-gray-100';
-                    const approverName = userMap.get(claim.approvedBy) || claim.approvedBy || 'N/A'; // NAME LOOKUP
-                    const paidByName = userMap.get(claim.processedBy) || claim.processedBy || 'N/A'; // NAME LOOKUP
+                    const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-1Player-100 text-green-800', Paid: 'bg-blue-100 text-blue-800', Rejected: 'bg-red-100 text-red-800' }[claim.status] || 'bg-gray-100';
+                    const approverName = userMap.get(claim.approvedBy) || claim.approvedBy || 'N/A';
+                    const paidByName = userMap.get(claim.processedBy) || claim.processedBy || 'N/A';
                     tableHTML += `
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">${claim.userName}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${claim.claimType}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${formatDateTime(claim.createdAt.toDate())}</td> <td class="px-6 py-4 whitespace-nowrap">${claim.claimType}</td>
                             <td class="px-6 py-4 whitespace-nowrap">RM${claim.amount.toFixed(2)}</td>
                             <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${claim.status}</span></td>
-                            <td class="px-6 py-4 whitespace-nowrap">${approverName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${claim.processedAt ? formatDateTime(claim.processedAt.toDate()) : 'N/A'}</td> <td class="px-6 py-4 whitespace-nowrap">${approverName}</td>
                             <td class="px-6 py-4 whitespace-nowrap">${paidByName}</td>
                         </tr>
                     `;
