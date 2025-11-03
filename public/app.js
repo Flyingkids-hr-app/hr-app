@@ -3131,6 +3131,7 @@ const handleResolveExceptionSubmit = async (e) => {
 // =================================================================================
 
 
+// in app.js
 const openRequestDetailsModal = async (requestId, collectionName, isApproval = false) => {
     const modal = document.getElementById('view-request-modal');
     const modalTitle = document.getElementById('view-request-modal-title');
@@ -3156,51 +3157,47 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
         
         switch(collectionName) {
             case 'requests':
-            modalTitle.textContent = 'Leave / OT Request Details';
-            bodyHtml += `<p><strong>Applicant:</strong> ${data.userName}</p><p><strong>Type:</strong> ${data.type}</p><p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p><p><strong>Hours Claimed:</strong> ${data.hours}</p><p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p><p><strong>Status:</strong> ${data.status}</p>${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}`;
-            if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>`; }
-            break;
-// Find the 'case 'claims':' block inside openRequestDetailsModal and replace it with this:
-case 'claims':
-    modalTitle.textContent = 'Expense Claim Details';
-    bodyHtml += `
-        <p><strong>Applicant:</strong> ${data.userName}</p>
-        <p><strong>Claim Type:</strong> ${data.claimType}</p>
-        <p><strong>Expense Date:</strong> ${formatDate(data.expenseDate)}</p>
-        <p><strong>Amount:</strong> RM${data.amount.toFixed(2)}</p>
-        <p><strong>Description:</strong><br><span class="pl-2">${data.description}</span></p>
-        <p><strong>Status:</strong> ${data.status}</p>
-        ${data.receiptUrl ? `<p><strong>Receipt:</strong> <a href="${data.receiptUrl}" target="_blank" class="text-indigo-600 hover:underline">View Receipt</a></p>` : '<p><strong>Receipt:</strong> No receipt was uploaded.</p>'}
-    `;
-
-    // --- NEW CODE START ---
-    // Add a special block to show rejection details if they exist
-    if (data.status === 'Rejected' && data.rejectionReason) {
-        bodyHtml += `
-            <div class="mt-4 p-3 bg-red-50 border-l-4 border-red-400 text-red-700 rounded-md">
-                <p class="font-bold">Rejection Details</p>
-                <p class="text-sm"><strong>Rejected By:</strong> ${data.rejectedBy || 'N/A'}</p>
-                <p class="text-sm"><strong>Reason:</strong> ${data.rejectionReason}</p>
-            </div>
-        `;
-    }
-    // --- NEW CODE END ---
-
-    // Logic for footer buttons (from our previous fix)
-    if (isApproval) {
-        if (data.status === 'Pending' && !userData.roles.includes('Finance')) {
-            footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-claim-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`;
-        } 
-        else if (data.status === 'Approved' && userData.roles.includes('Finance')) {
-            footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="paid-claim-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Mark as Paid</button>`;
-        }
-    }
-    break;
-
+                modalTitle.textContent = 'Leave / OT Request Details';
+                bodyHtml += `
+                    <p><strong>Applicant:</strong> ${data.userName}</p>
+                    <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
+                    <p><strong>Type:</strong> ${data.type}</p>
+                    <p><strong>Dates:</strong> ${formatDateTime(data.startDate)} to ${formatDateTime(data.endDate)}</p>
+                    <p><strong>Hours Claimed:</strong> ${data.hours}</p>
+                    <p><strong>Reason:</strong><br><span class="pl-2">${data.reason}</span></p>
+                    <p><strong>Status:</strong> ${data.status}</p>
+                    ${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}
+                `;
+                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>`; }
+                break;
+            case 'claims':
+                modalTitle.textContent = 'Expense Claim Details';
+                bodyHtml += `
+                    <p><strong>Applicant:</strong> ${data.userName}</p>
+                    <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
+                    <p><strong>Claim Type:</strong> ${data.claimType}</p>
+                    <p><strong>Expense Date:</strong> ${formatDate(data.expenseDate)}</p>
+                    <p><strong>Amount:</strong> RM${data.amount.toFixed(2)}</p>
+                    <p><strong>Description:</strong><br><span class="pl-2">${data.description}</span></p>
+                    <p><strong>Status:</strong> ${data.status}</p>
+                    ${data.receiptUrl ? `<p><strong>Receipt:</strong> <a href="${data.receiptUrl}" target="_blank" class="text-indigo-600 hover:underline">View Receipt</a></p>` : '<p><strong>Receipt:</strong> No receipt was uploaded.</p>'}
+                `;
+                if (data.status === 'Rejected' && data.rejectionReason) {
+                    bodyHtml += `<div class="mt-4 p-3 bg-red-50 border-l-4 border-red-400 text-red-700 rounded-md"><p class="font-bold">Rejection Details</p><p class="text-sm"><strong>Rejected By:</strong> ${data.rejectedBy || 'N/A'}</p><p class="text-sm"><strong>Reason:</strong> ${data.rejectionReason}</p></div>`;
+                }
+                if (isApproval) {
+                    if (data.status === 'Pending' && !userData.roles.includes('Finance')) {
+                        footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-claim-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`;
+                    } else if (data.status === 'Approved' && userData.roles.includes('Finance')) {
+                        footerHtml += `<button class="reject-claim-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="paid-claim-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Mark as Paid</button>`;
+                    }
+                }
+                break;
             case 'purchaseRequests':
                 modalTitle.textContent = 'Purchase Request Details';
                 bodyHtml += `
                     <p><strong>Applicant:</strong> ${data.userName}</p>
+                    <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
                     <p><strong>Item:</strong> ${data.itemDescription}</p>
                     <p><strong>Quantity:</strong> ${data.quantity}</p>
                     <p><strong>Estimated Cost:</strong> RM${data.estimatedCost.toFixed(2)}</p>
@@ -3235,12 +3232,12 @@ case 'claims':
     }
 };
 
-
 const closeRequestDetailsModal = () => {
     const modal = document.getElementById('view-request-modal');
     modal.classList.add('hidden');
 };
 
+// in app.js
 const handleApproveRequest = async (e) => {
     const button = e.target;
     const requestId = button.dataset.id;
@@ -3250,6 +3247,15 @@ const handleApproveRequest = async (e) => {
     if (!confirm("Are you sure you want to approve this request?")) return;
     const requestRef = doc(db, 'requests', requestId);
     const requestTypeConfig = appConfig.requestTypes.find(rt => rt.name === requestType);
+
+    // --- START: ADDED processedAt ---
+    const updateData = {
+        status: 'Approved',
+        approvedBy: currentUser.email,
+        processedAt: serverTimestamp() // This is the new field
+    };
+    // --- END: ADDED processedAt ---
+
     try {
         if (requestTypeConfig && requestTypeConfig.hasQuota) {
             await runTransaction(db, async (transaction) => {
@@ -3263,10 +3269,10 @@ const handleApproveRequest = async (e) => {
                 const currentTaken = quotaData[takenField] || 0;
                 const newTaken = currentTaken + requestHours;
                 transaction.update(quotaRef, { [takenField]: newTaken });
-                transaction.update(requestRef, { status: 'Approved', approvedBy: currentUser.email });
+                transaction.update(requestRef, updateData); // Use the new updateData object
             });
         } else {
-            await updateDoc(requestRef, { status: 'Approved', approvedBy: currentUser.email });
+            await updateDoc(requestRef, updateData); // Use the new updateData object
         }
         alert('Request approved successfully!');
         closeRequestDetailsModal();
@@ -3282,7 +3288,13 @@ const handleRejectRequest = async (e) => {
     if (!confirm("Are you sure you want to reject this request?")) return;
     try {
         const requestRef = doc(db, 'requests', requestId);
-        await updateDoc(requestRef, { status: 'Rejected', approvedBy: currentUser.email });
+        // --- START: ADDED processedAt ---
+        await updateDoc(requestRef, {
+            status: 'Rejected',
+            approvedBy: currentUser.email,
+            processedAt: serverTimestamp() // This is the new field
+        });
+        // --- END: ADDED processedAt ---
         alert('Request rejected.');
         closeRequestDetailsModal();
         navigateTo('approvals');
@@ -3292,12 +3304,17 @@ const handleRejectRequest = async (e) => {
     }
 };
 
+// in app.js
 const handleApproveClaim = async (e) => {
     const claimId = e.target.dataset.id;
     if (!confirm("Are you sure you want to approve this claim?")) return;
     try {
         const claimRef = doc(db, 'claims', claimId);
-        await updateDoc(claimRef, { status: 'Approved', approvedBy: currentUser.email });
+        await updateDoc(claimRef, {
+            status: 'Approved',
+            approvedBy: currentUser.email,
+            processedAt: serverTimestamp() // ADDED THIS LINE
+        });
         alert('Claim approved.');
         closeRequestDetailsModal();
         navigateTo('approvals');
@@ -3307,12 +3324,12 @@ const handleApproveClaim = async (e) => {
     }
 };
 
+// in app.js
 const handleRejectClaim = async (e) => {
     const claimId = e.target.dataset.id;
     
-    // NEW: Ask for a rejection reason
     const reason = prompt("Please provide a reason for rejecting this claim:");
-    if (reason === null) { // User clicked cancel
+    if (reason === null) {
         return; 
     }
     if (!reason.trim()) {
@@ -3322,13 +3339,12 @@ const handleRejectClaim = async (e) => {
 
     try {
         const claimRef = doc(db, 'claims', claimId);
-        // NEW: Save the rejection reason and who rejected it
         await updateDoc(claimRef, { 
-    status: 'Rejected', 
-    // We no longer overwrite 'approvedBy'. It remains the original manager.
-    rejectionReason: reason,
-    rejectedBy: currentUser.email
-});
+            status: 'Rejected', 
+            rejectionReason: reason,
+            rejectedBy: currentUser.email,
+            processedAt: serverTimestamp() // ADDED THIS LINE
+        });
 
         alert('Claim rejected.');
         closeRequestDetailsModal();
@@ -3338,12 +3354,18 @@ const handleRejectClaim = async (e) => {
         alert("Failed to reject claim.");
     }
 };
+
+// in app.js
 const handleMarkAsPaid = async (e) => {
     const claimId = e.target.dataset.id;
     if (!confirm("Are you sure you want to mark this claim as paid? This action cannot be undone.")) return;
     try {
         const claimRef = doc(db, 'claims', claimId);
-        await updateDoc(claimRef, { status: 'Paid', processedBy: currentUser.email });
+        await updateDoc(claimRef, {
+            status: 'Paid',
+            processedBy: currentUser.email,
+            processedAt: serverTimestamp() // ADDED THIS LINE
+        });
         alert('Claim marked as paid.');
         closeRequestDetailsModal();
         navigateTo('approvals');
