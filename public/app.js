@@ -2379,19 +2379,22 @@ const renderLeaveReport = () => {
             const querySnapshot = await getDocs(q);
             const requests = querySnapshot.docs.map(doc => doc.data());
             
-            // --- CHANGE 1: "Hours_Claimed" column re-ordered for clarity in CSV export ---
+            // --- START: MODIFIED CSV EXPORT ---
             dataForExport = requests.map(req => ({
                 Employee: req.userName,
                 Department: req.department,
                 Type: req.type,
+                SubmittedOn: formatDateTime(req.createdAt.toDate()), // ADDED
                 StartDate: formatDateTime(req.startDate),
                 EndDate: formatDateTime(req.endDate),
                 Hours_Claimed: req.hours,
                 Status: req.status,
+                ProcessedOn: req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A', // ADDED
                 ApprovedBy: userMap.get(req.approvedBy) || req.approvedBy || 'N/A',
                 Reason: req.reason,
                 DocumentURL: req.documentUrl || 'N/A'
             }));
+            // --- END: MODIFIED CSV EXPORT ---
 
             let tableHTML = `
                 <div class="overflow-x-auto">
@@ -2400,17 +2403,17 @@ const renderLeaveReport = () => {
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submitted On</th> <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours Claimed</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processed On</th> <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
             `;
 
             if (requests.length === 0) {
-                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No leave data found.</td></tr>`;
+                tableHTML += `<tr><td colspan="8" class="p-4 text-center text-gray-500">No leave data found.</td></tr>`; // Updated colspan to 8
             } else {
                 requests.forEach(req => {
                     const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-100 text-green-800', Rejected: 'bg-red-100 text-red-800' }[req.status] || 'bg-gray-100';
@@ -2419,10 +2422,10 @@ const renderLeaveReport = () => {
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">${req.userName}</td>
                             <td class="px-6 py-4 whitespace-nowrap">${req.type}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${formatDateTime(req.startDate)} to ${formatDateTime(req.endDate)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${formatDateTime(req.createdAt.toDate())}</td> <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${formatDateTime(req.startDate)} to ${formatDateTime(req.endDate)}</td>
                             <td class="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">${req.hours}</td>
                             <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span></td>
-                            <td class="px-6 py-4 whitespace-nowrap">${approverName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A'}</td> <td class="px-6 py-4 whitespace-nowrap">${approverName}</td>
                         </tr>
                     `;
                 });
