@@ -3987,17 +3987,18 @@ const handleSupportSubmit = async (e) => {
     const submitButton = e.target.querySelector('button[type="submit"]');
     submitButton.disabled = true;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Submitting...';
+    const progressIndicator = document.getElementById('support-upload-progress');
+    progressIndicator.textContent = '';
 
     try {
         const assigneeEmail = document.getElementById('support-assign-to').value;
         const subject = document.getElementById('support-subject').value.trim();
         const description = document.getElementById('support-description').value.trim();
         const attachmentLink = document.getElementById('support-link').value.trim();
-        const file = document.getElementById('support-file').files[0];
+        const files = document.getElementById('support-file').files; // This is now a FileList
 
         if (!assigneeEmail || !subject || !description) {
             alert("Please fill out all required fields.");
-            // No need for 'finally' here as we return early
             submitButton.disabled = false;
             submitButton.textContent = 'Submit Request';
             return;
@@ -4013,53 +4014,50 @@ const handleSupportSubmit = async (e) => {
             subject: subject,
             description: description,
             attachmentLink: attachmentLink || null,
-            fileUrl: null,
+            fileAttachments: [], // We will save files here as an array of objects
             status: 'Open',
             createdAt: serverTimestamp()
         };
 
-        const saveTicketToFirestore = async () => {
-            await addDoc(collection(db, 'supportRequests'), newSupportRequest);
-            alert('Support request submitted successfully!');
-            closeSupportModal();
-            navigateTo('support');
-        };
-
-        if (file) {
-            const progressIndicator = document.getElementById('support-upload-progress');
-            const storagePath = `support-ticket-attachments/${currentUser.uid}/${Date.now()}-${file.name}`;
-            const storageRef = ref(storage, storagePath);
-            const uploadTask = uploadBytesResumable(storageRef, file);
-
-            await new Promise((resolve, reject) => {
-                uploadTask.on('state_changed',
-                    (snapshot) => {
-                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                        progressIndicator.textContent = `Upload: ${progress.toFixed(0)}% done`;
-                    },
-                    (error) => {
-                        console.error("File upload failed:", error);
-                        alert("File upload failed. Please try again.");
-                        reject(error);
-                    },
-                    async () => {
-                        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                        newSupportRequest.fileUrl = downloadURL;
-                        await saveTicketToFirestore();
-                        resolve();
-                    }
-                );
-            });
-        } else {
-            await saveTicketToFirestore();
+        // --- NEW: Multi-file upload logic ---
+        if (files.length > 0) {
+            const uploadPromises = [];
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const storagePath = `support-ticket-attachments/${currentUser.uid}/${Date.now()}-${file.name}`;
+                const storageRef = ref(storage, storagePath);
+                
+                progressIndicator.textContent = `Uploading file ${i + 1} of ${files.length}...`;
+                
+                // Create a promise for each upload
+                const uploadPromise = uploadBytesResumable(storageRef, file).then(async (snapshot) => {
+                    const downloadURL = await getDownloadURL(snapshot.ref);
+                    return { fileName: file.name, fileUrl: downloadURL };
+                });
+                
+                uploadPromises.push(uploadPromise);
+            }
+            
+            // Wait for all uploads to complete
+            const uploadedFiles = await Promise.all(uploadPromises);
+            newSupportRequest.fileAttachments = uploadedFiles;
+            progressIndicator.textContent = 'Uploads complete!';
         }
+        // --- END: New logic ---
+
+        await addDoc(collection(db, 'supportRequests'), newSupportRequest);
+        alert('Support request submitted successfully!');
+        closeSupportModal();
+        navigateTo('support');
+
     } catch (error) {
         console.error("Error in handleSupportSubmit:", error);
-        // Error is already handled/alerted in nested functions
+        alert("An error occurred: " + error.message);
     } finally {
-        // This block ensures the button is ALWAYS reset.
         submitButton.disabled = false;
         submitButton.textContent = 'Submit Request';
+        progressIndicator.textContent = '';
     }
 };
 
@@ -4074,9 +4072,11 @@ const openViewSupportModal = async (taskId) => {
             return;
         }
         const task = taskDoc.data();
-
-        // --- START: NEW ATTACHMENT DISPLAY LOGIC ---
         let attachmentsHtml = '';
+
+        // --- START: MODIFIED ATTACHMENT LOGIC ---
+
+        // 1. Handle the old, single attachment link
         if (task.attachmentLink) {
             attachmentsHtml += `
                 <div class="mt-4">
@@ -4085,6 +4085,8 @@ const openViewSupportModal = async (taskId) => {
                 </div>
             `;
         }
+
+        // 2. Handle the old, single file upload
         if (task.fileUrl) {
             attachmentsHtml += `
                 <div class="mt-4">
@@ -4095,13 +4097,28 @@ const openViewSupportModal = async (taskId) => {
                 </div>
             `;
         }
-        // --- END: NEW ATTACHMENT DISPLAY LOGIC ---
+        
+        // 3. Handle the NEW multiple file attachments
+        if (task.fileAttachments && task.fileAttachments.length > 0) {
+            attachmentsHtml += `<div class="mt-4"><label class="block text-sm font-medium text-gray-700">Attached Files</label><ul class="list-none space-y-1 mt-1">`;
+            task.fileAttachments.forEach(file => {
+                attachmentsHtml += `
+                    <li>
+                        <a href="${file.fileUrl}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">
+                            <i class="fas fa-paperclip mr-2"></i>${file.fileName}
+                        </a>
+                    </li>
+                `;
+            });
+            attachmentsHtml += `</ul></div>`;
+        }
+        // --- END: MODIFIED ATTACHMENT LOGIC ---
 
         document.getElementById('view-support-id').value = taskId;
         document.getElementById('view-support-subject').textContent = task.subject;
         document.getElementById('view-support-requester').textContent = task.requesterName;
         document.getElementById('view-support-description').textContent = task.description;
-        document.getElementById('view-support-attachments').innerHTML = attachmentsHtml; // New element to display attachments
+        document.getElementById('view-support-attachments').innerHTML = attachmentsHtml;
         document.getElementById('view-support-status').value = task.status;
         
         viewSupportModal.classList.remove('hidden');
