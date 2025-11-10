@@ -92,6 +92,12 @@ const completePurchaseModal = document.getElementById('complete-purchase-modal')
 const completePurchaseForm = document.getElementById('complete-purchase-form');
 const completePurchaseModalCloseButton = document.getElementById('complete-purchase-modal-close-button');
 const completePurchaseModalCancelButton = document.getElementById('complete-purchase-modal-cancel-button');
+// ... at the end of the Modal Elements section ...
+const billPaymentModal = document.getElementById('bill-payment-modal');
+const billPaymentForm = document.getElementById('bill-payment-form');
+const billPaymentModalCloseButton = document.getElementById('bill-payment-modal-close-button');
+const billPaymentModalCancelButton = document.getElementById('bill-payment-modal-cancel-button');
+
 
 // --- Global State ---
 let currentUser = null;
@@ -114,6 +120,7 @@ const navItems = [
     { id: 'purchasing', label: 'Purchasing', icon: 'fa-solid fa-cart-shopping', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'Purchaser'] },
     { id: 'my-job', label: 'My Job', icon: 'fa-solid fa-list-check', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
     { id: 'support', label: 'Support Requests', icon: 'fa-solid fa-headset', requiredRoles: ['Staff', 'DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'Admin', 'IT', 'HR Head'] },
+    { id: 'bill-payments', label: 'Bill Payments', icon: 'fa-solid fa-file-invoice-dollar', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'Finance'] },
     { id: 'approvals', label: 'Approvals', icon: 'fa-solid fa-thumbs-up', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'RespiteManager', 'Purchaser', 'HR Head'] },
     // MODIFIED LINE: Added 'HR Head', 'Admin', and 'IT' to this list
     { id: 'reports', label: 'Reports', icon: 'fa-solid fa-chart-line', requiredRoles: ['DepartmentManager', 'RegionalDirector', 'Director', 'HR', 'Finance', 'Purchaser', 'HR Head', 'Admin', 'IT'] },
@@ -814,6 +821,69 @@ const renderMyDocuments = async () => {
     }
 };
 
+// --- ADD THIS ENTIRE NEW FUNCTION ---
+
+const renderBillPayments = async () => {
+    pageTitle.textContent = 'Bill Payments';
+    contentArea.innerHTML = `
+        <div class="flex justify-end mb-4">
+            <button id="open-bill-payment-modal-button" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded">
+                <i class="fas fa-plus mr-2"></i>New Payment Request
+            </button>
+        </div>
+        <div id="bill-payments-container" class="space-y-4">Loading payment requests...</div>
+    `;
+    try {
+        // We query for requests created by the user OR requests for their department (if they are a manager)
+        const userQuery = query(collection(db, 'paymentRequests'), where('userId', '==', currentUser.email), orderBy('createdAt', 'desc'));
+        const deptQuery = query(collection(db, 'paymentRequests'), where('department', 'in', userData.managedDepartments || ['_']), orderBy('createdAt', 'desc'));
+
+        const [userSnap, deptSnap] = await Promise.all([getDocs(userQuery), getDocs(deptQuery)]);
+        
+        const requestsMap = new Map();
+        userSnap.docs.forEach(doc => requestsMap.set(doc.id, { id: doc.id, ...doc.data() }));
+        deptSnap.docs.forEach(doc => requestsMap.set(doc.id, { id: doc.id, ...doc.data() }));
+        const requests = Array.from(requestsMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+
+        const container = document.getElementById('bill-payments-container');
+        if (requests.length === 0) {
+            container.innerHTML = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">No bill payment requests found.</div>`;
+        } else {
+            container.innerHTML = requests.map(req => {
+                const statusColor = {
+                  'Pending Approval': 'bg-yellow-100 text-yellow-800',
+                  'Pending Finance': 'bg-blue-100 text-blue-800',
+                  'Paid': 'bg-green-100 text-green-800',
+                  'Rejected': 'bg-red-100 text-red-800'
+                }[req.status] || 'bg-gray-100 text-gray-800';
+
+                return `
+                    <div class="bg-white p-4 rounded-lg shadow flex items-center justify-between">
+                        <div>
+                            <p class="font-bold text-gray-800">${req.vendorName}</p>
+                            <p class="text-sm text-gray-600">Dept: ${req.department} | Amount: RM${req.amount.toFixed(2)}</p>
+                            <p class="text-xs text-gray-500">Due: ${formatDate(req.dueDate)} | Submitted by: ${req.userName}</p>
+                       </div>
+                        <div class="flex items-center space-x-4">
+                            <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
+                            <button class="view-details-button text-indigo-600 hover:text-indigo-900" data-id="${req.id}" data-type="paymentRequests">View Details</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        document.getElementById('open-bill-payment-modal-button').addEventListener('click', openBillPaymentModal);
+        document.querySelectorAll('.view-details-button').forEach(btn => btn.addEventListener('click', (e) => openRequestDetailsModal(e.target.dataset.id, e.target.dataset.type)));
+
+    } catch (error) {
+        console.error("Error fetching bill payments:", error);
+        contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading bill payments.</div>`;
+    }
+};
+
+// --- END OF NEW FUNCTION ---
+
 const renderAttendance = async () => {
     pageTitle.textContent = 'Attendance';
     contentArea.innerHTML = `<div class="bg-white p-6 rounded-lg shadow">Loading attendance...</div>`;
@@ -1193,6 +1263,7 @@ const renderApprovals = async () => {
             requests: { title: 'Leave / OT Requests', items: [] },
             claims: { title: 'Expense Claims', items: [] },
             purchaseRequests: { title: 'Purchase Requests', items: [] },
+           paymentRequests: { title: 'Bill Payments', items: [] },
         };
         const managedDepts = userData.managedDepartments || [];
         const deptsToQueryForManager = isDirector ? appConfig.availableDepartments : managedDepts;
@@ -1217,16 +1288,28 @@ const renderApprovals = async () => {
              prSnap.docs.forEach(doc => sections.purchaseRequests.items.push({ id: doc.id, ...doc.data() }));
         }
 
-        // 4. Load approved Claims for Finance
-        if (isFinance && managedDepts.length > 0) {
-            const finClaimsSnap = await getDocs(query(collection(db, 'claims'), where('status', '==', 'Approved'), where('department', 'in', managedDepts)));
-            finClaimsSnap.docs.forEach(doc => {
-                 if (!sections.claims.items.some(item => item.id === doc.id)) {
-                    sections.claims.items.push({ id: doc.id, ...doc.data() });
-                }
-            });
-        }
+// 3.5 Load pending Bill Payments for Managers
+        if ((isManager || isDirector) && deptsToQueryForManager.length > 0) {
+            const bpSnap = await getDocs(query(collection(db, 'paymentRequests'), where('status', '==', 'Pending Approval'), where('department', 'in', deptsToQueryForManager)));
+            bpSnap.docs.forEach(doc => sections.paymentRequests.items.push({ id: doc.id, ...doc.data() }));
+        }
+        
+// 4. Load approved Claims for Finance
+        if (isFinance && managedDepts.length > 0) {
+            const finClaimsSnap = await getDocs(query(collection(db, 'claims'), where('status', '==', 'Approved'), where('department', 'in', managedDepts)));
+            finClaimsSnap.docs.forEach(doc => {
+                 if (!sections.claims.items.some(item => item.id === doc.id)) {
+                    sections.claims.items.push({ id: doc.id, ...doc.data() });
+                 } // <-- ADD THIS CLOSING BRACE
+            }); // <-- ADD THIS CLOSING BRACE AND SEMICOLON
 
+            const finBpSnap = await getDocs(query(collection(db, 'paymentRequests'), where('status', '==', 'Pending Finance'), where('department', 'in', managedDepts)));
+            finBpSnap.docs.forEach(doc => {
+                if (!sections.paymentRequests.items.some(item => item.id === doc.id)) {
+                    sections.paymentRequests.items.push({ id: doc.id, ...doc.data() });    
+                }
+            });
+        }
         // 5. Load approved/processing Purchase Requests for Purchasers (with chunking)
         if (isPurchaser && managedDepts.length > 0) {
             const purchaseRef = collection(db, 'purchaseRequests');
@@ -1261,7 +1344,8 @@ const renderApprovals = async () => {
                     if (key === 'requests') summary = `${item.type} for ${item.hours} hours`;
                     if (key === 'claims') summary = `${item.claimType} for RM${item.amount.toFixed(2)}`;
                     if (key === 'purchaseRequests') summary = `${item.itemDescription}`;
-                    finalHtml += `
+                    if (key === 'paymentRequests') summary = `${item.vendorName} for RM${item.amount.toFixed(2)}`;
+                     finalHtml += `
                         <div class="bg-gray-50 p-4 rounded-lg flex items-center justify-between">
                             <div>
                                 <p class="font-bold text-gray-800">${item.userName}</p>
@@ -3221,7 +3305,29 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                 else if (isApproval && data.status === 'Approved' && userData.roles.includes('Purchaser')) { footerHtml += `<button class="process-purchase-button bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Start Processing</button>`; }
                 else if (isApproval && data.status === 'Processing' && userData.roles.includes('Purchaser')) { footerHtml += `<button class="open-complete-purchase-modal-btn bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md ml-2">Complete Purchase</button>`; }
                 break;
-        }
+        
+case 'paymentRequests':
+                modalTitle.textContent = 'Bill Payment Details';
+                bodyHtml += `
+                    <p><strong>Submitted By:</strong> ${data.userName}</p>
+               <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
+                    <p><strong>Department:</strong> ${data.department}</p>
+                    <p><strong>Vendor Name:</strong> ${data.vendorName}</p>
+                    <p><strong>Amount Due:</strong> RM${data.amount.toFixed(2)}</p>
+                    <p><strong>Due Date:</strong> ${formatDate(data.dueDate)}</p>
+                    <p><strong>Notes:</strong><br><span class="pl-2">${data.notes || 'N/A'}</span></p>
+                    <p><strong>Invoice:</strong> <a href="${data.invoiceUrl}" target="_blank" class="text-indigo-600 hover:underline">View Invoice</a></p>
+                    <p><strong>Status:</strong> ${data.status}</p>
+                `;
+                if (isApproval) {
+               if (data.status === 'Pending Approval') {
+                        footerHtml += `<button class="reject-payment-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-payment-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`;
+                    } else if (data.status === 'Pending Finance' && userData.roles.includes('Finance')) {
+                        footerHtml += `<button class="reject-payment-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="paid-payment-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Mark as Paid</button>`;
+                    }
+                }
+                break;
+           }
 
         bodyHtml += '</div>';
         modalBody.innerHTML = bodyHtml;
@@ -3237,7 +3343,10 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
         if (document.querySelector('.reject-purchase-button')) document.querySelector('.reject-purchase-button').addEventListener('click', (e) => handlePurchaseUpdate(e.target.dataset.id, 'Rejected', 'approvedBy'));
         if (document.querySelector('.process-purchase-button')) document.querySelector('.process-purchase-button').addEventListener('click', (e) => handlePurchaseUpdate(e.target.dataset.id, 'Processing', 'processedBy'));
         if (document.querySelector('.open-complete-purchase-modal-btn')) document.querySelector('.open-complete-purchase-modal-btn').addEventListener('click', () => openCompletePurchaseModal(requestId));
-
+if (document.querySelector('.approve-payment-button')) document.querySelector('.approve-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Pending Finance', 'approvedBy'));
+        if (document.querySelector('.reject-payment-button')) document.querySelector('.reject-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Rejected', 'processedBy'));
+        if (document.querySelector('.paid-payment-button')) document.querySelector('.paid-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Paid', 'processedBy'));
+        
     } catch (error) {
         console.error("Error opening request details:", error);
         modalBody.innerHTML = 'Failed to load request details.';
@@ -4443,6 +4552,143 @@ const handleCompletePurchaseSubmit = async (e) => {
     }
 };
 
+// --- ADD THESE 3 ENTIRE NEW FUNCTIONS ---
+
+const openBillPaymentModal = () => {
+    billPaymentForm.reset();
+    document.getElementById('payment-upload-progress').textContent = '';
+    const deptContainer = document.getElementById('payment-department-container');
+    const deptSelect = document.getElementById('payment-department');
+
+    if (userData.roles.includes('Finance')) {
+        // Finance must select a department
+        deptContainer.classList.remove('hidden');
+       deptSelect.required = true;
+        deptSelect.innerHTML = '<option value="">Select a department...</option>';
+        appConfig.availableDepartments.forEach(dept => {
+            const option = document.createElement('option');
+            option.value = dept;
+            option.textContent = dept;
+            deptSelect.appendChild(option);
+        });
+    } else {
+        // Managers are submitting for their own department
+        deptContainer.classList.add('hidden');
+        deptSelect.required = false;
+    }
+
+    billPaymentModal.classList.remove('hidden');
+};
+
+const closeBillPaymentModal = () => billPaymentModal.classList.add('hidden');
+
+const handleBillPaymentSubmit = async (e) => {
+   e.preventDefault();
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Submitting...';
+
+    const invoiceFile = document.getElementById('payment-invoice-upload').files[0];
+    const isFinanceSubmitter = userData.roles.includes('Finance');
+    const selectedDept = document.getElementById('payment-department').value;
+
+    let department, status;
+
+    if (isFinanceSubmitter) {
+        if (!selectedDept) {
+            alert("Finance must select a department for this bill.");
+            submitButton.disabled = false;
+            submitButton.innerHTML = 'Submit for Approval';
+            return;
+        }
+        department = selectedDept;
+        status = 'Pending Approval'; // Manager must approve it
+ } else {
+        department = userData.primaryDepartment;
+        status = 'Pending Finance'; // Goes straight to Finance
+    }
+
+    if (!invoiceFile) {
+        alert("You must upload an invoice or bill.");
+        submitButton.disabled = false;
+        submitButton.innerHTML = 'Submit for Approval';
+        return;
+    }
+
+    const newPaymentRequest = {
+        userId: currentUser.email,
+        userName: userData.name,
+        department: department,
+        vendorName: document.getElementById('payment-vendor').value,
+        amount: parseFloat(document.getElementById('payment-amount').value),
+        dueDate: document.getElementById('payment-due-date').value,
+        notes: document.getElementById('payment-notes').value,
+        invoiceUrl: null,
+        status: status,
+        createdAt: serverTimestamp(),
+        approvedBy: null,
+        processedBy: null
+    };
+
+    const saveRequest = async () => {
+        try {
+            await addDoc(collection(db, 'paymentRequests'), newPaymentRequest);
+            alert('Payment request submitted successfully!');
+            closeBillPaymentModal();
+            navigateTo('bill-payments');
+      } catch (error) {
+            console.error("Error submitting payment request:", error);
+            alert("Failed to submit request.");
+        } finally {
+            submitButton.disabled = false;
+            submitButton.innerHTML = 'Submit for Approval';
+        }
+    };
+
+    // Upload the invoice
+    const progressIndicator = document.getElementById('payment-upload-progress');
+    const filePath = `payment-invoices/${currentUser.uid}/${Date.now()}_${invoiceFile.name}`;
+   const storageRef = ref(storage, filePath);
+    const uploadTask = uploadBytesResumable(storageRef, invoiceFile);
+
+    uploadTask.on('state_changed',
+        (snapshot) => {
+           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            progressIndicator.textContent = `Upload is ${progress.toFixed(0)}% done`;
+        },
+        (error) => {
+            console.error("Upload failed:", error);
+            alert("Invoice upload failed. Please try again.");
+            submitButton.disabled = false;
+            submitButton.innerHTML = 'Submit for Approval';
+     },
+        async () => {
+            newPaymentRequest.invoiceUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            await saveRequest();
+        }
+    );
+};
+
+const handleBillPaymentUpdate = async (requestId, newStatus, userField) => {
+    if (!confirm(`Are you sure you want to mark this request as ${newStatus}?`)) return;
+    try {
+        const requestRef = doc(db, 'paymentRequests', requestId);
+        await updateDoc(requestRef, {
+            status: newStatus,
+            [userField]: currentUser.email,
+            processedAt: serverTimestamp()
+        });
+        alert(`Request marked as ${newStatus}.`);
+        closeRequestDetailsModal();
+        navigateTo('approvals');
+    } catch (error) {
+        console.error(`Error updating bill payment to ${newStatus}:`, error);
+        alert(`Failed to update request.`);
+    }
+};
+
+// --- END OF NEW FUNCTIONS ---
+
 // in app.js
 const openAnnouncementModal = () => {
     announcementForm.reset();
@@ -4763,6 +5009,7 @@ const navigateTo = (pageId) => {
         'leave-ot': renderLeaveOT,
         'claims': renderClaims, 
         'purchasing': renderPurchasing, 
+        'bill-payments': renderBillPayments,
         'my-job': renderMyJob, 
         'support': renderSupport,
         'approvals': renderApprovals,
@@ -4832,7 +5079,9 @@ viewAcknowledgementsModalCancelButton.addEventListener('click', closeViewAcknowl
 completePurchaseModalCloseButton.addEventListener('click', closeCompletePurchaseModal);
 completePurchaseModalCancelButton.addEventListener('click', closeCompletePurchaseModal);
 completePurchaseForm.addEventListener('submit', handleCompletePurchaseSubmit);
-
+billPaymentModalCloseButton.addEventListener('click', closeBillPaymentModal);
+billPaymentModalCancelButton.addEventListener('click', closeBillPaymentModal);
+billPaymentForm.addEventListener('submit', handleBillPaymentSubmit);
 
 document.getElementById('request-type').addEventListener('change', (e) => {
     const selectedOption = e.target.options[e.target.selectedIndex];

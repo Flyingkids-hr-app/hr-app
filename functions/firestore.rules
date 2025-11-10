@@ -88,6 +88,40 @@ service cloud.firestore {
       allow create: if isSignedIn() && isCreatingForSelf();
     }
 
+// --- ADD THIS ENTILE NEW BLOCK ---
+    match /paymentRequests/{docId} {
+      // A user can see requests they submitted OR requests for departments they manage.
+      // Finance/Director can see all.
+      allow get: if isSignedIn() && (
+          isOwnerOfDoc() ||
+          managesDepartmentOfDoc() ||
+          hasAnyRole(['Director', 'Finance'])
+        );
+      
+      // Users can query for their own requests, or managers/finance can query for requests.
+      allow list: if isSignedIn();
+      
+      // Allow creation if:
+      // 1. The user is a Manager/Director creating for their own department.
+      // 2. The user is in Finance (creating on behalf of another department).
+      allow create: if isSignedIn() && (
+          (isCreatingForSelf() && hasAnyRole(['DepartmentManager', 'RegionalDirector', 'Director'])) ||
+          hasAnyRole(['Finance'])
+      );
+      
+      // Allow update if:
+      // 1. The user is a Manager of that department (to approve it).
+      // 2. The user is in Finance (to mark as paid).
+      // 3. The user is a Director.
+      allow update: if isSignedIn() && (
+          managesDepartmentOfDoc() ||
+          hasAnyRole(['Director', 'Finance'])
+      );
+      
+      allow delete: if hasAnyRole(['Director']);
+    }
+// --- END OF NEW BLOCK ---
+
 // in firestore.rules
   match /supportRequests/{docId} {
     allow create: if isSignedIn() && request.auth.token.email == request.resource.data.requesterId;
