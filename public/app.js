@@ -2791,6 +2791,180 @@ const renderPurchasingReport = () => {
     fetchAllUsersAndRender(); // Start by fetching users, then render the rest
 };
 
+// =================================================================================
+// START: NEW BILL PAYMENTS REPORT FUNCTION
+// =================================================================================
+
+const renderBillPaymentsReport = () => {
+    const filtersContainer = document.getElementById('report-filters');
+    const dataContainer = document.getElementById('report-data-container');
+    let dataForExport = [];
+    let userMap = new Map(); // To store user emails and names
+
+    // 1. Fetch all users first to map emails to names for the report
+    const fetchAllUsersAndRender = async () => {
+        try {
+            // Get all user names to map IDs (like processedBy) to a name
+            const usersSnapshot = await getDocs(collection(db, 'users'));
+            usersSnapshot.forEach(doc => {
+                userMap.set(doc.id, doc.data().name);
+            });
+
+            // 2. Render the standard filter bar
+            renderReportFilters(filtersContainer, { 
+                showDateRange: true, 
+                showStatus: true, 
+                showDepartment: true, 
+                onApply: fetchData,
+                onExport: () => exportToCSV(dataForExport, 'bill-payments-report') 
+            });
+            
+            // 3. Load the initial data
+            fetchData();
+        } catch (error) {
+            console.error("Error fetching user list for report:", error);
+            contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Could not load user data for the report.</div>`;
+        }
+    };
+
+    // 4. This function queries and displays the data
+    const fetchData = async () => {
+        dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching bill payments data...</p>`;
+
+        // Role-based query logic
+        const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('Finance');
+        let q = query(collection(db, 'paymentRequests'), orderBy('createdAt', 'desc'));
+
+        if (!canSeeAll) {
+            const deptsToView = userData.managedDepartments || [];
+            if (deptsToView.length > 0) {
+                q = query(q, where('department', 'in', deptsToView));
+            } else {
+                dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to any departments.</p>`;
+                return;
+            }
+        }
+
+        // Apply filters
+        const startDate = document.getElementById('report-start-date')?.value;
+        const endDate = document.getElementById('report-end-date')?.value;
+        const status = document.getElementById('report-status')?.value;
+        const department = document.getElementById('report-department')?.value;
+
+        // Note: Firestore requires date queries to be on the same field. We'll use createdAt.
+        if (startDate) q = query(q, where('createdAt', '>=', new Date(startDate)));
+        if (endDate) {
+             const end = new Date(endDate);
+             end.setHours(23, 59, 59, 999); // Include the entire end day
+             q = query(q, where('createdAt', '<=', end));
+        }
+        if (status) q = query(q, where('status', '==', status));
+        if (department) q = query(q, where('department', '==', department));
+        
+        try {
+            const querySnapshot = await getDocs(q);
+            const payments = querySnapshot.docs.map(doc => doc.data());
+            
+            // 5. Prepare data for CSV Export (including new fields)
+            dataForExport = payments.map(req => {
+                let processedByName = 'N/A';
+                if (req.status === 'Pending Finance' || req.status === 'Rejected') {
+                    processedByName = userMap.get(req.approvedBy) || req.approvedBy || 'N/A';
+                } else if (req.status === 'Paid') {
+                    processedByName = userMap.get(req.processedBy) || req.processedBy || 'N/A';
+                }
+
+                return {
+                    Submitted_By: req.userName,
+                    Department: req.department,
+                    Submitted_On: formatDateTime(req.createdAt.toDate()),
+                    Vendor: req.vendorName,
+                    Amount: req.amount.toFixed(2),
+                    Due_Date: formatDate(req.dueDate),
+                    Status: req.status,
+                    Processed_On: req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A',
+                    Processed_By: processedByName,
+                    Notes: req.notes || '',
+                    Invoice_URL: req.invoiceUrl
+                };
+            });
+
+            // 6. Render the HTML Table
+            let tableHTML = `
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+               <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor / Submitted By</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submitted On</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processed At / By</th>
+                    </tr>
+                </thead> 
+                       <tbody class="bg-white divide-y divide-gray-200">
+            `;
+
+if (payments.length === 0) {
+                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No bill payments found.</td></tr>`;
+            } else {
+                payments.forEach(req => {
+                    // --- ADD THIS BLOCK BACK ---
+                    const statusColor = {
+                        'Pending Approval': 'bg-yellow-100 text-yellow-800',
+                        'Pending Finance': 'bg-blue-100 text-blue-800',
+                        'Paid': 'bg-green-100 text-green-800',
+                        'Rejected': 'bg-red-100 text-red-800'
+                    }[req.status] || 'bg-gray-100 text-gray-800';
+
+                    let processedByText = 'N/A';
+                    if (req.status === 'Pending Finance' || req.status === 'Rejected') {
+                        processedByText = userMap.get(req.approvedBy) || 'N/A';
+                    } else if (req.status === 'Paid') {
+                        processedByText = userMap.get(req.processedBy) || 'N/A';
+                    }
+                    
+                    const processedAtText = req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A';
+                    // --- END OF BLOCK TO ADD ---
+
+                    tableHTML += `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="font-medium text-gray-900">${req.vendorName}</div>
+                          <div class="text-sm text-gray-500">by ${req.userName}</div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${req.department}</td>
+                            <td class="px-6 py-4 whitespace-nowrap font-semibold">RM ${req.amount.toFixed(2)}</td>
+                           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(req.createdAt.toDate())}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
+                            </td>
+                           <td class="px-6 py-4 whitespace-nowrap">
+                          <div class="text-sm text-gray-900">${processedAtText}</div>
+                           <div class="text-sm text-gray-500">${processedByText}</div>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }            tableHTML += `</tbody></table></div>`;
+            dataContainer.innerHTML = tableHTML;
+
+        } catch (error) {
+            console.error("Error fetching bill payments report: ", error);
+            dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data. A Firestore index may be required. Please check the console.</p>`;
+        }
+    };
+
+    // Start by fetching users, which will then render filters and data
+    fetchAllUsersAndRender();
+};
+
+// =================================================================================
+// END: NEW BILL PAYMENTS REPORT FUNCTION
+// =================================================================================
+
+
 const renderAttendanceReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
@@ -2992,6 +3166,9 @@ const loadReport = (reportType) => {
         case 'purchasing':
             renderPurchasingReport();
             break;
+        case 'bill-payments':
+            renderBillPaymentsReport();
+            break;
         case 'attendance':
             renderAttendanceReport();
             break;
@@ -3016,6 +3193,7 @@ const renderReports = async () => {
         { id: 'leave', label: 'Leave / OT' },
         { id: 'claims', label: 'Claims' },
         { id: 'purchasing', label: 'Purchasing' },
+        { id: 'bill-payments', label: 'Bill Payments' },
         { id: 'attendance', label: 'Attendance History' },
         { id: 'announcements', label: 'Announcements' }
     ];
@@ -3044,6 +3222,7 @@ const renderReports = async () => {
     if (userRoles.has('Finance')) {
         visibleTabIds.add('claims');
         visibleTabIds.add('purchasing');
+        visibleTabIds.add('bill-payments');
         visibleTabIds.add('announcements');
     }
     if (userRoles.has('Admin') || userRoles.has('IT')) {
