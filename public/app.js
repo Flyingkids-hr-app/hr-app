@@ -862,7 +862,7 @@ const renderBillPayments = async () => {
                         <div>
                             <p class="font-bold text-gray-800">${req.vendorName}</p>
                             <p class="text-sm text-gray-600">Dept: ${req.department} | Amount: RM${req.amount.toFixed(2)}</p>
-                            <p class="text-xs text-gray-500">Due: ${formatDate(req.dueDate)} | Submitted by: ${req.userName}</p>
+                            <p class="text-xs text-gray-500">Billing Date: ${formatDate(req.billingDate)} | Submitted by: ${req.userName}</p>
                        </div>
                         <div class="flex items-center space-x-4">
                             <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
@@ -2880,7 +2880,7 @@ const renderBillPaymentsReport = () => {
                     Submitted_On: formatDateTime(req.createdAt.toDate()),
                     Vendor: req.vendorName,
                     Amount: req.amount.toFixed(2),
-                    Due_Date: formatDate(req.dueDate),
+                    Billing_Date: formatDate(req.billingDate),
                     Status: req.status,
                     Processed_On: req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A',
                     Processed_By: processedByName,
@@ -3493,7 +3493,7 @@ case 'paymentRequests':
                     <p><strong>Department:</strong> ${data.department}</p>
                     <p><strong>Vendor Name:</strong> ${data.vendorName}</p>
                     <p><strong>Amount Due:</strong> RM${data.amount.toFixed(2)}</p>
-                    <p><strong>Due Date:</strong> ${formatDate(data.dueDate)}</p>
+                    <p><strong>Billing Date:</strong> ${formatDate(data.billingDate)}</p>
                     <p><strong>Notes:</strong><br><span class="pl-2">${data.notes || 'N/A'}</span></p>
                     <p><strong>Invoice:</strong> <a href="${data.invoiceUrl}" target="_blank" class="text-indigo-600 hover:underline">View Invoice</a></p>
                     <p><strong>Status:</strong> ${data.status}</p>
@@ -4800,7 +4800,7 @@ const handleBillPaymentSubmit = async (e) => {
         department: department,
         vendorName: document.getElementById('payment-vendor').value,
         amount: parseFloat(document.getElementById('payment-amount').value),
-        dueDate: document.getElementById('payment-due-date').value,
+        billingDate: document.getElementById('payment-billing-date').value,
         notes: document.getElementById('payment-notes').value,
         invoiceUrl: null,
         status: status,
