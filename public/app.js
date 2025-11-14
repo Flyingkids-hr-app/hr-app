@@ -2893,24 +2893,24 @@ const renderBillPaymentsReport = () => {
             let tableHTML = `
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
-               <thead class="bg-gray-50">
+<thead class="bg-gray-50">
                     <tr>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor / Submitted By</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Billing Date</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submitted On</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processed At / By</th>
                     </tr>
-                </thead> 
-                       <tbody class="bg-white divide-y divide-gray-200">
+                </thead>                       <tbody class="bg-white divide-y divide-gray-200">
             `;
 
 if (payments.length === 0) {
-                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No bill payments found.</td></tr>`;
+                tableHTML += `<tr><td colspan="7" class="p-4 text-center text-gray-500">No bill payments found.</td></tr>`;
             } else {
                 payments.forEach(req => {
-                    // --- ADD THIS BLOCK BACK ---
+                    // --- THIS IS THE MISSING LOGIC ---
                     const statusColor = {
                         'Pending Approval': 'bg-yellow-100 text-yellow-800',
                         'Pending Finance': 'bg-blue-100 text-blue-800',
@@ -2923,31 +2923,35 @@ if (payments.length === 0) {
                         processedByText = userMap.get(req.approvedBy) || 'N/A';
                     } else if (req.status === 'Paid') {
                         processedByText = userMap.get(req.processedBy) || 'N/A';
-                    }
+                 }
                     
                     const processedAtText = req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A';
-                    // --- END OF BLOCK TO ADD ---
+                    // --- END OF MISSING LOGIC ---
 
                     tableHTML += `
-                        <tr>
+                       <tr>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="font-medium text-gray-900">${req.vendorName}</div>
-                          <div class="text-sm text-gray-500">by ${req.userName}</div>
-                            </td>
+                                <div class="text-sm text-gray-500">by ${req.userName}</div>
+                       </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${req.department}</td>
                             <td class="px-6 py-4 whitespace-nowrap font-semibold">RM ${req.amount.toFixed(2)}</td>
-                           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(req.createdAt.toDate())}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDate(req.billingDate)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(req.createdAt.toDate())}</td>
+
                             <td class="px-6 py-4 whitespace-nowrap">
-                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
                             </td>
-                           <td class="px-6 py-4 whitespace-nowrap">
-                          <div class="text-sm text-gray-900">${processedAtText}</div>
-                           <div class="text-sm text-gray-500">${processedByText}</div>
+                       <td class="px-6 py-4 whitespace-nowrap">
+                         <div class="text-sm text-gray-900">${processedAtText}</div>
+                                <div class="text-sm text-gray-500">${processedByText}</div>
+
                             </td>
                         </tr>
-                    `;
+                   `;
                 });
-            }            tableHTML += `</tbody></table></div>`;
+            }           
+            tableHTML += `</tbody></table></div>`;
             dataContainer.innerHTML = tableHTML;
 
         } catch (error) {
