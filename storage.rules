@@ -23,14 +23,41 @@ service firebase.storage {
     }
     // --- END: FINAL, RELIABLE user-documents RULE ---
 
+// --- SECURED ANNOUNCEMENT IMAGES ---
     match /announcement-images/{fileName} {
-      allow write: if request.auth != null;
+      allow write: if request.auth != null && 
+      (
+        request.auth.token.roles.hasAny(['Director']) ||
+        request.auth.token.roles.hasAny([
+          'HR', 
+          'HR Head', 
+          'Admin', 
+          'DepartmentManager', 
+          'RegionalDirector',
+          'Finance',
+          'Purchaser',
+          'RespiteManager'
+        ]) 
+      );
     }
     
+    // --- SECURED ANNOUNCEMENT ATTACHMENTS (Same Rules) ---
     match /announcement-attachments/{fileName} {
-     allow write: if request.auth != null;
+      allow write: if request.auth != null && 
+      (
+        request.auth.token.roles.hasAny(['Director']) ||
+        request.auth.token.roles.hasAny([
+          'HR', 
+          'HR Head', 
+          'Admin', 
+          'DepartmentManager', 
+          'RegionalDirector',
+          'Finance',
+          'Purchaser',
+          'RespiteManager'
+        ]) 
+      );
     }
-
     match /purchase-receipts/{userId}/{fileName} {
        allow write: if request.auth != null && request.auth.uid == userId;
     }

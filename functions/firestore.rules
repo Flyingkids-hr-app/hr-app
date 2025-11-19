@@ -154,7 +154,7 @@ service cloud.firestore {
     }
 
     match /attendanceExceptions/{docId} {
-      allow create: if true; // Created by backend function
+      allow create: if false; // Only allowed via Cloud Functions (Admin SDK)
       allow get: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
       allow list: if isSignedIn();
       allow update: if (hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc()) || (isOwnerOfDoc() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']));
