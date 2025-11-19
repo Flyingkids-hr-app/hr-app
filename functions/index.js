@@ -1029,3 +1029,57 @@ exports.onClaimStatusChangeSendNotification = onDocumentUpdated("claims/{claimId
 
     return null;
 });
+
+// =================================================================================
+// FIRESTORE TRIGGER: onBillPaymentStatusChange (NEW)
+// Notifies the submitter if their Bill Payment is rejected.
+// =================================================================================
+exports.onBillPaymentStatusChange = onDocumentUpdated("paymentRequests/{requestId}", async (event) => {
+    const beforeData = event.data.before.data();
+    const afterData = event.data.after.data();
+
+    // Trigger only when status changes to 'Rejected'
+    if (beforeData.status !== 'Rejected' && afterData.status === 'Rejected') {
+        
+        const submitterId = afterData.userId; // Who created the request
+        const rejectorEmail = afterData.processedBy; // Who rejected it (Manager or Finance)
+        
+        // Safety check: If we don't know who submitted it, we can't notify them.
+        if (!submitterId) return null;
+
+        console.log(`Bill Payment ${event.params.requestId} rejected. Notifying ${submitterId}.`);
+
+        // 1. Try to get the Rejector's Name (for a friendly message)
+        let rejectorName = "Manager/Finance";
+        if (rejectorEmail) {
+            try {
+                const userDoc = await db.collection('users').doc(rejectorEmail).get();
+                if (userDoc.exists) {
+                    rejectorName = userDoc.data().name;
+                }
+            } catch (e) {
+                console.error("Could not fetch rejector name:", e);
+            }
+        }
+
+        // 2. Create the Alert Message
+        // Note: Currently app.js doesn't ask for a reason on Bill Rejection, so we keep it generic.
+        const message = `Your Bill Payment request for '${afterData.vendorName}' (RM${afterData.amount.toFixed(2)}) was rejected by ${rejectorName}.`;
+
+        // 3. Insert into userAlerts collection
+        try {
+            await db.collection('userAlerts').add({
+                userId: submitterId,
+                message: message,
+                type: 'BillRejected',
+                acknowledged: false,
+                createdAt: FieldValue.serverTimestamp()
+            });
+            console.log("Alert created successfully.");
+        } catch (error) {
+            console.error("Failed to create user alert:", error);
+        }
+    }
+
+    return null;
+});
