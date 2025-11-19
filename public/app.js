@@ -155,6 +155,21 @@ const formatDateTime = (dateString) => {
     });
 };
 
+// --- ADD THIS NEW HELPER FUNCTION ---
+const formatDateForCSV = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    // Handle both Firestore Timestamp objects and standard Date strings/objects
+    const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
+    
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+};
+
 const calculateDuration = (start, end) => {
     if (!start || !end) return 'N/A';
 
@@ -2463,22 +2478,25 @@ const renderLeaveReport = () => {
             const querySnapshot = await getDocs(q);
             const requests = querySnapshot.docs.map(doc => doc.data());
             
-            // --- START: MODIFIED CSV EXPORT ---
+// --- REPLACE THIS BLOCK IN renderLeaveReport ---
             dataForExport = requests.map(req => ({
                 Employee: req.userName,
                 Department: req.department,
                 Type: req.type,
-                SubmittedOn: formatDateTime(req.createdAt.toDate()), // ADDED
-                StartDate: formatDateTime(req.startDate),
-                EndDate: formatDateTime(req.endDate),
+                // FIX: Use formatDateForCSV for Excel compatibility
+                SubmittedOn: formatDateForCSV(req.createdAt), 
+                // FIX: Use formatDateForCSV for Start/End dates
+                StartDate: formatDateForCSV(req.startDate),
+                EndDate: formatDateForCSV(req.endDate),
                 Hours_Claimed: req.hours,
                 Status: req.status,
-                ProcessedOn: req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A', // ADDED
+                // FIX: Use formatDateForCSV for Processed date
+                ProcessedOn: req.processedAt ? formatDateForCSV(req.processedAt) : 'N/A',
                 ApprovedBy: userMap.get(req.approvedBy) || req.approvedBy || 'N/A',
                 Reason: req.reason,
                 DocumentURL: req.documentUrl || 'N/A'
             }));
-            // --- END: MODIFIED CSV EXPORT ---
+            // --- END REPLACEMENT ---
 
             let tableHTML = `
                 <div class="overflow-x-auto">
@@ -2585,22 +2603,25 @@ const renderClaimsReport = () => {
             const querySnapshot = await getDocs(q);
             const claims = querySnapshot.docs.map(doc => doc.data());
             
-            // --- START: MODIFIED CSV EXPORT ---
+// --- REPLACE THIS BLOCK IN renderClaimsReport ---
             dataForExport = claims.map(claim => ({
                 Employee: claim.userName,
                 Department: claim.department,
-                SubmittedOn: formatDateTime(claim.createdAt.toDate()), // ADDED
+                // We use the new helper here to fix the Excel date issue:
+                SubmittedOn: formatDateForCSV(claim.createdAt), 
                 ClaimType: claim.claimType,
-                ExpenseDate: formatDate(claim.expenseDate),
+                // Expense Date is usually a string YYYY-MM-DD already, but this is safe:
+                ExpenseDate: claim.expenseDate, 
                 Amount: claim.amount.toFixed(2),
                 Status: claim.status,
-                ProcessedOn: claim.processedAt ? formatDateTime(claim.processedAt.toDate()) : 'N/A', // ADDED
+                // And we use the new helper here:
+                ProcessedOn: claim.processedAt ? formatDateForCSV(claim.processedAt) : 'N/A', 
                 ApprovedBy: userMap.get(claim.approvedBy) || claim.approvedBy || 'N/A',
                 PaidBy: userMap.get(claim.processedBy) || claim.processedBy || 'N/A',
                 Description: claim.description,
                 ReceiptURL: claim.receiptUrl
             }));
-            // --- END: MODIFIED CSV EXPORT ---
+            // --- END REPLACEMENT ---
 
             let tableHTML = `
                 <div class="overflow-x-auto">
