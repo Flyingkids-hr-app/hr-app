@@ -1083,3 +1083,61 @@ exports.onBillPaymentStatusChange = onDocumentUpdated("paymentRequests/{requestI
 
     return null;
 });
+
+// =================================================================================
+// FIRESTORE TRIGGER: onLeaveRejectedStatusChange (NEW)
+// Notifies the employee if their Leave/OT request is rejected.
+// =================================================================================
+exports.onLeaveRejectedStatusChange = onDocumentUpdated("requests/{requestId}", async (event) => {
+    const beforeData = event.data.before.data();
+    const afterData = event.data.after.data();
+
+    // Trigger only when status changes from 'Pending' to 'Rejected'
+    if (beforeData.status === 'Pending' && afterData.status === 'Rejected') {
+        
+        const submitterId = afterData.userId; 
+        // In app.js, the rejector's email is stored in 'approvedBy' field during rejection
+        const rejectorEmail = afterData.approvedBy; 
+        
+        if (!submitterId) return null;
+
+        console.log(`Leave Request ${event.params.requestId} rejected. Notifying ${submitterId}.`);
+
+        // 1. Try to get the Rejector's Name
+        let rejectorName = "Manager";
+        if (rejectorEmail) {
+            try {
+                const userDoc = await db.collection('users').doc(rejectorEmail).get();
+                if (userDoc.exists) {
+                    rejectorName = userDoc.data().name;
+                }
+            } catch (e) {
+                console.error("Could not fetch rejector name:", e);
+            }
+        }
+
+        // 2. Format the dates for the message
+        const start = moment(afterData.startDate).tz('Asia/Kuala_Lumpur').format('MMM D');
+        const end = moment(afterData.endDate).tz('Asia/Kuala_Lumpur').format('MMM D');
+        const dateRange = (start === end) ? start : `${start} - ${end}`;
+
+        // 3. Create the Alert Message
+        const message = `Your ${afterData.type} request (${dateRange}) was rejected by ${rejectorName}.`;
+
+        // 4. Insert into userAlerts collection
+        try {
+            await db.collection('userAlerts').add({
+                userId: submitterId,
+                message: message,
+                type: 'LeaveRejected',
+                acknowledged: false,
+                createdAt: FieldValue.serverTimestamp()
+            });
+            console.log("Leave rejection alert created successfully.");
+        } catch (error) {
+            console.error("Failed to create leave rejection alert:", error);
+        }
+    }
+
+    return null;
+});
