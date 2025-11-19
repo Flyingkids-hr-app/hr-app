@@ -1141,3 +1141,57 @@ exports.onLeaveRejectedStatusChange = onDocumentUpdated("requests/{requestId}", 
 
     return null;
 });
+
+// =================================================================================
+// FIRESTORE TRIGGER: onSupportStatusChange (NEW)
+// Notifies the requester when their Support Ticket status changes.
+// =================================================================================
+exports.onSupportStatusChange = onDocumentUpdated("supportRequests/{requestId}", async (event) => {
+    const beforeData = event.data.before.data();
+    const afterData = event.data.after.data();
+
+    // Only trigger if the status has actually changed
+    if (beforeData.status !== afterData.status) {
+        
+        const requesterId = afterData.requesterId; // The person who asked for help
+        const assigneeName = afterData.assigneeName || "Support Team";
+        const newStatus = afterData.status;
+
+        if (!requesterId) return null;
+
+        console.log(`Support Ticket ${event.params.requestId} changed to ${newStatus}. Notifying ${requesterId}.`);
+
+        // 1. Craft the message based on the new status
+        let message = "";
+        let alertType = "SupportUpdate";
+
+        if (newStatus === 'In Progress') {
+            message = `Your support ticket '${afterData.subject}' is now In Progress by ${assigneeName}.`;
+        } else if (newStatus === 'Completed') {
+            message = `Good news! Your support ticket '${afterData.subject}' has been marked as Completed by ${assigneeName}.`;
+            alertType = "SupportResolved";
+        } else if (newStatus === 'Closed') {
+            message = `Your support ticket '${afterData.subject}' has been Closed by ${assigneeName}.`;
+            alertType = "SupportClosed";
+        } else {
+            // Fallback for other statuses (like Re-opened)
+            message = `Status update: Your support ticket '${afterData.subject}' is now ${newStatus}.`;
+        }
+
+        // 2. Insert into userAlerts collection
+        try {
+            await db.collection('userAlerts').add({
+                userId: requesterId,
+                message: message,
+                type: alertType,
+                acknowledged: false,
+                createdAt: FieldValue.serverTimestamp()
+            });
+            console.log("Support status alert created successfully.");
+        } catch (error) {
+            console.error("Failed to create support status alert:", error);
+        }
+    }
+
+    return null;
+});
