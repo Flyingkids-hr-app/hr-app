@@ -70,25 +70,52 @@ service cloud.firestore {
       }
     }
 
+// --- UPDATED: Scoped Access for Leave Requests ---
     match /requests/{docId} {
-      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director', 'HR', 'HR Head']) || managesDepartmentOfDoc());
+      allow get, update, delete: if isSignedIn() && (
+        isOwnerOfDoc() || 
+        hasAnyRole(['Director', 'HR', 'HR Head']) || 
+        (
+          // The "Two-Key" Check:
+          // 1. Must manage the department
+          managesDepartmentOfDoc() && 
+          // 2. Must be a role that actually handles people/leave
+          hasAnyRole(['DepartmentManager', 'RegionalDirector', 'RespiteManager'])
+        )
+      );
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isCreatingForSelf();
     }
     
+// --- UPDATED: Scoped Access for Claims ---
     match /claims/{docId} {
-      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director']) || managesDepartmentOfDoc());
+      allow get, update, delete: if isSignedIn() && (
+        isOwnerOfDoc() || 
+        hasAnyRole(['Director']) || 
+        (
+          managesDepartmentOfDoc() && 
+          // Only Managers (Approval) or Finance (Processing)
+          hasAnyRole(['DepartmentManager', 'RegionalDirector', 'Finance'])
+        )
+      );
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isCreatingForSelf();
-    }
+    } 
 
+// --- UPDATED: Scoped Access for Purchase Requests ---
     match /purchaseRequests/{docId} {
-      allow get, update, delete: if isSignedIn() && (isOwnerOfDoc() || hasAnyRole(['Director']) || managesDepartmentOfDoc());
+      allow get, update, delete: if isSignedIn() && (
+        isOwnerOfDoc() || 
+        hasAnyRole(['Director']) || 
+        (
+          managesDepartmentOfDoc() && 
+          // Only Managers (Approval) or Purchasers (Processing)
+          hasAnyRole(['DepartmentManager', 'RegionalDirector', 'Purchaser'])
+        )
+      );
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isCreatingForSelf();
-    }
-
-// --- ADD THIS ENTILE NEW BLOCK ---
+    }// --- ADD THIS ENTILE NEW BLOCK ---
     match /paymentRequests/{docId} {
       // A user can see requests they submitted OR requests for departments they manage.
       // Finance/Director can see all.

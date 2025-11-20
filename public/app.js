@@ -1264,109 +1264,157 @@ const renderPurchasing = async () => {
     }
 };
 
+// --- REPLACE THE ENTIRE renderApprovals FUNCTION WITH THIS ---
 const renderApprovals = async () => {
     pageTitle.textContent = 'Approvals';
     contentArea.innerHTML = `<div id="approvals-container" class="space-y-8">Loading approvals...</div>`;
 
-    const isFinance = userData.roles.includes('Finance');
-    const isPurchaser = userData.roles.includes('Purchaser');
-    const isManager = userData.managedDepartments && userData.managedDepartments.length > 0;
-    const isDirector = userData.roles.includes('Director');
-    
     try {
         const sections = {
             requests: { title: 'Leave / OT Requests', items: [] },
             claims: { title: 'Expense Claims', items: [] },
             purchaseRequests: { title: 'Purchase Requests', items: [] },
-           paymentRequests: { title: 'Bill Payments', items: [] },
+            paymentRequests: { title: 'Bill Payments', items: [] },
         };
+
+        const roles = userData.roles || [];
         const managedDepts = userData.managedDepartments || [];
-        const deptsToQueryForManager = isDirector ? appConfig.availableDepartments : managedDepts;
-
-        // --- START: NEW SEQUENTIAL LOADING LOGIC ---
-
-        // 1. Load pending Leave/OT requests
-        if ((isManager || isDirector) && deptsToQueryForManager.length > 0) {
-            const reqSnap = await getDocs(query(collection(db, 'requests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQueryForManager)));
-            reqSnap.docs.forEach(doc => sections.requests.items.push({ id: doc.id, ...doc.data() }));
-        }
-
-        // 2. Load pending Claims
-        if ((isManager || isDirector) && deptsToQueryForManager.length > 0) {
-            const claimsSnap = await getDocs(query(collection(db, 'claims'), where('status', '==', 'Pending'), where('department', 'in', deptsToQueryForManager)));
-            claimsSnap.docs.forEach(doc => sections.claims.items.push({ id: doc.id, ...doc.data() }));
-        }
         
-        // 3. Load pending Purchase Requests for Managers (if not a purchaser)
-        if ((isManager || isDirector) && !isPurchaser && deptsToQueryForManager.length > 0) {
-             const prSnap = await getDocs(query(collection(db, 'purchaseRequests'), where('status', '==', 'Pending'), where('department', 'in', deptsToQueryForManager)));
-             prSnap.docs.forEach(doc => sections.purchaseRequests.items.push({ id: doc.id, ...doc.data() }));
+        // --- 1. DEFINE CAPABILITIES ---
+        const isDirector = roles.includes('Director');
+        
+        // "General Managers" handle Staff & Operations (Leave, Level 1 approvals)
+        const isGeneralManager = roles.includes('DepartmentManager') || roles.includes('RegionalDirector') || roles.includes('HR Head') || isDirector;
+        
+        // "Specialists" handle Money & Assets
+        const isFinance = roles.includes('Finance') || isDirector;
+        const isPurchaser = roles.includes('Purchaser') || isDirector;
+
+        // --- 2. DEFINE SCOPE (Who sees what departments?) ---
+        // If Director, we set this to null so we don't filter by dept (fetch all)
+        // If Manager, we limit to their specific list.
+        const targetDepts = isDirector ? null : managedDepts;
+
+        // Safety check for non-directors with no depts
+        if (!isDirector && targetDepts.length === 0) {
+             document.getElementById('approvals-container').innerHTML = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">You have no managed departments assigned to view approvals.</div>`;
+             return;
         }
 
-// 3.5 Load pending Bill Payments for Managers
-        if ((isManager || isDirector) && deptsToQueryForManager.length > 0) {
-            const bpSnap = await getDocs(query(collection(db, 'paymentRequests'), where('status', '==', 'Pending Approval'), where('department', 'in', deptsToQueryForManager)));
-            bpSnap.docs.forEach(doc => sections.paymentRequests.items.push({ id: doc.id, ...doc.data() }));
-        }
-        
-// 4. Load approved Claims for Finance
-        if (isFinance && managedDepts.length > 0) {
-            const finClaimsSnap = await getDocs(query(collection(db, 'claims'), where('status', '==', 'Approved'), where('department', 'in', managedDepts)));
-            finClaimsSnap.docs.forEach(doc => {
-                 if (!sections.claims.items.some(item => item.id === doc.id)) {
-                    sections.claims.items.push({ id: doc.id, ...doc.data() });
-                 } // <-- ADD THIS CLOSING BRACE
-            }); // <-- ADD THIS CLOSING BRACE AND SEMICOLON
-
-            const finBpSnap = await getDocs(query(collection(db, 'paymentRequests'), where('status', '==', 'Pending Finance'), where('department', 'in', managedDepts)));
-            finBpSnap.docs.forEach(doc => {
-                if (!sections.paymentRequests.items.some(item => item.id === doc.id)) {
-                    sections.paymentRequests.items.push({ id: doc.id, ...doc.data() });    
-                }
-            });
-        }
-        // 5. Load approved/processing Purchase Requests for Purchasers (with chunking)
-        if (isPurchaser && managedDepts.length > 0) {
-            const purchaseRef = collection(db, 'purchaseRequests');
-            const requiredStatuses = ['Approved', 'Processing'];
-            const CHUNK_SIZE = 30;
-            const deptChunks = [];
-            for (let i = 0; i < managedDepts.length; i += CHUNK_SIZE) {
-                deptChunks.push(managedDepts.slice(i, i + CHUNK_SIZE));
+        // Helper to chunk queries (Firestore limit: 30 items in 'in' query)
+        const fetchScopedDocs = async (collectionName, statusCondition) => {
+            let q = collection(db, collectionName);
+            
+            // Status Filter (Handle array 'in' or string '==')
+            if (Array.isArray(statusCondition)) {
+                q = query(q, where('status', 'in', statusCondition));
+            } else {
+                q = query(q, where('status', '==', statusCondition));
             }
-            const chunkPromises = deptChunks.map(chunk => getDocs(query(purchaseRef, where('department', 'in', chunk))));
-            const querySnapshots = await Promise.all(chunkPromises);
 
-            querySnapshots.forEach(snapshot => {
-                snapshot.forEach(doc => {
-                    if (requiredStatuses.includes(doc.data().status)) {
-                        if (!sections.purchaseRequests.items.some(item => item.id === doc.id)) {
-                           sections.purchaseRequests.items.push({ id: doc.id, ...doc.data() });
-                        }
-                    }
-                });
+            // Department Filter
+            if (isDirector) {
+                // Director sees ALL departments (no filter needed)
+                return await getDocs(q);
+            } else {
+                // Managers see only their departments (Chunked to avoid limits)
+                const CHUNK_SIZE = 30;
+                const snapshots = [];
+                for (let i = 0; i < targetDepts.length; i += CHUNK_SIZE) {
+                    const chunk = targetDepts.slice(i, i + CHUNK_SIZE);
+                    const chunkQuery = query(q, where('department', 'in', chunk));
+                    snapshots.push(await getDocs(chunkQuery));
+                }
+                // Combine snapshots results manually later
+                return snapshots;
+            }
+        };
+
+        // Helper to process results into the sections object
+        const processResults = (results, sectionKey) => {
+            const docs = Array.isArray(results) ? results.flatMap(snap => snap.docs) : results.docs;
+            docs.forEach(doc => {
+                // Prevent duplicates
+                if (!sections[sectionKey].items.some(item => item.id === doc.id)) {
+                    sections[sectionKey].items.push({ id: doc.id, ...doc.data() });
+                }
             });
-        }
-        // --- END: NEW SEQUENTIAL LOADING LOGIC ---
+        };
 
+        const promises = [];
+
+        // --- 3. EXECUTE QUERIES BASED ON CAPABILITIES ---
+
+        // A. LEAVE REQUESTS (Strictly for General Managers)
+        // Finance & Purchaser will SKIP this block entirely.
+        if (isGeneralManager) {
+            promises.push(fetchScopedDocs('requests', 'Pending')
+                .then(res => processResults(res, 'requests')));
+        }
+
+        // B. CLAIMS 
+        // Level 1: Managers (Pending)
+        if (isGeneralManager) {
+            promises.push(fetchScopedDocs('claims', 'Pending')
+                .then(res => processResults(res, 'claims')));
+        }
+        // Level 2: Finance (Approved)
+        if (isFinance) {
+            promises.push(fetchScopedDocs('claims', 'Approved')
+                .then(res => processResults(res, 'claims')));
+        }
+
+        // C. PURCHASE REQUESTS
+        // Level 1: Managers (Pending)
+        if (isGeneralManager) {
+            promises.push(fetchScopedDocs('purchaseRequests', 'Pending')
+                .then(res => processResults(res, 'purchaseRequests')));
+        }
+        // Level 2: Purchasers (Approved or Processing)
+        if (isPurchaser) {
+            promises.push(fetchScopedDocs('purchaseRequests', ['Approved', 'Processing'])
+                .then(res => processResults(res, 'purchaseRequests')));
+        }
+
+        // D. BILL PAYMENTS
+        // Level 1: Managers (Pending Approval)
+        if (isGeneralManager) {
+            promises.push(fetchScopedDocs('paymentRequests', 'Pending Approval')
+                .then(res => processResults(res, 'paymentRequests')));
+        }
+        // Level 2: Finance (Pending Finance)
+        if (isFinance) {
+            promises.push(fetchScopedDocs('paymentRequests', 'Pending Finance')
+                .then(res => processResults(res, 'paymentRequests')));
+        }
+
+        await Promise.all(promises);
+
+        // --- 4. RENDER HTML ---
         let finalHtml = '';
         for (const key in sections) {
             const section = sections[key];
             if (section.items.length > 0) {
                 finalHtml += `<div class="bg-white p-6 rounded-lg shadow"><h3 class="text-xl font-semibold mb-4">${section.title}</h3><div class="space-y-4">`;
+                
+                // Sort items by date (oldest first usually for approvals, or newest. Let's do newest)
+                section.items.sort((a, b) => b.createdAt - a.createdAt);
+
                 section.items.forEach(item => {
                     let summary = '';
                     if (key === 'requests') summary = `${item.type} for ${item.hours} hours`;
                     if (key === 'claims') summary = `${item.claimType} for RM${item.amount.toFixed(2)}`;
                     if (key === 'purchaseRequests') summary = `${item.itemDescription}`;
                     if (key === 'paymentRequests') summary = `${item.vendorName} for RM${item.amount.toFixed(2)}`;
-                     finalHtml += `
+                    
+                    finalHtml += `
                         <div class="bg-gray-50 p-4 rounded-lg flex items-center justify-between">
                             <div>
                                 <p class="font-bold text-gray-800">${item.userName}</p>
                                 <p class="text-sm text-gray-600">${summary}</p>
+                                <p class="text-xs text-gray-500">${item.department} • ${item.status}</p>
                             </div>
-                            <button class="view-details-button bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600" data-id="${item.id}" data-type="${key}">View Details</button>
+                            <button class="view-details-button bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600" data-id="${item.id}" data-type="${key}">View</button>
                         </div>
                     `;
                 });
@@ -1375,7 +1423,7 @@ const renderApprovals = async () => {
         }
 
         if (finalHtml === '') {
-            finalHtml = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">No pending approvals.</div>`;
+            finalHtml = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">No pending approvals found for your roles.</div>`;
         }
 
         document.getElementById('approvals-container').innerHTML = finalHtml;
@@ -1383,7 +1431,7 @@ const renderApprovals = async () => {
 
     } catch (error) {
         console.error("Error fetching approvals:", error);
-        contentArea.innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading approvals: ${error.message}</div>`;
+        document.getElementById('approvals-container').innerHTML = `<div class="bg-red-100 text-red-700 p-4 rounded-lg">Error loading approvals: ${error.message}</div>`;
     }
 };
 
