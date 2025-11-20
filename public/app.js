@@ -1265,6 +1265,7 @@ const renderPurchasing = async () => {
 };
 
 // --- REPLACE THE ENTIRE renderApprovals FUNCTION WITH THIS ---
+// --- REPLACE THE ENTIRE renderApprovals FUNCTION WITH THIS ---
 const renderApprovals = async () => {
     pageTitle.textContent = 'Approvals';
     contentArea.innerHTML = `<div id="approvals-container" class="space-y-8">Loading approvals...</div>`;
@@ -1282,59 +1283,57 @@ const renderApprovals = async () => {
         
         // --- 1. DEFINE CAPABILITIES ---
         const isDirector = roles.includes('Director');
-        
-        // "General Managers" handle Staff & Operations (Leave, Level 1 approvals)
         const isGeneralManager = roles.includes('DepartmentManager') || roles.includes('RegionalDirector') || roles.includes('HR Head') || isDirector;
-        
-        // "Specialists" handle Money & Assets
         const isFinance = roles.includes('Finance') || isDirector;
         const isPurchaser = roles.includes('Purchaser') || isDirector;
 
-        // --- 2. DEFINE SCOPE (Who sees what departments?) ---
-        // If Director, we set this to null so we don't filter by dept (fetch all)
-        // If Manager, we limit to their specific list.
+        // --- 2. DEFINE SCOPE ---
         const targetDepts = isDirector ? null : managedDepts;
 
-        // Safety check for non-directors with no depts
         if (!isDirector && targetDepts.length === 0) {
              document.getElementById('approvals-container').innerHTML = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">You have no managed departments assigned to view approvals.</div>`;
              return;
         }
 
-        // Helper to chunk queries (Firestore limit: 30 items in 'in' query)
+        // --- HELPER: Fetch Docs with Dynamic Chunking (THE FIX) ---
         const fetchScopedDocs = async (collectionName, statusCondition) => {
             let q = collection(db, collectionName);
-            
-            // Status Filter (Handle array 'in' or string '==')
-            if (Array.isArray(statusCondition)) {
+            const isStatusArray = Array.isArray(statusCondition);
+
+            // 1. Apply Status Filter
+            if (isStatusArray) {
                 q = query(q, where('status', 'in', statusCondition));
             } else {
                 q = query(q, where('status', '==', statusCondition));
             }
 
-            // Department Filter
+            // 2. Apply Department Filter
             if (isDirector) {
-                // Director sees ALL departments (no filter needed)
                 return await getDocs(q);
             } else {
-                // Managers see only their departments (Chunked to avoid limits)
-                const CHUNK_SIZE = 30;
+                // CALCULATE SAFE CHUNK SIZE
+                // Formula: 30 (Max Limit) / Number of Statuses
+                // Example: If checking 2 statuses ('Approved', 'Processing'), chunk size must be 15.
+                const statusCount = isStatusArray ? statusCondition.length : 1;
+                const safeChunkSize = Math.floor(30 / statusCount);
+
                 const snapshots = [];
-                for (let i = 0; i < targetDepts.length; i += CHUNK_SIZE) {
-                    const chunk = targetDepts.slice(i, i + CHUNK_SIZE);
-                    const chunkQuery = query(q, where('department', 'in', chunk));
-                    snapshots.push(await getDocs(chunkQuery));
+                for (let i = 0; i < targetDepts.length; i += safeChunkSize) {
+                    const chunk = targetDepts.slice(i, i + safeChunkSize);
+                    // Only run query if chunk has items
+                    if (chunk.length > 0) {
+                        const chunkQuery = query(q, where('department', 'in', chunk));
+                        snapshots.push(await getDocs(chunkQuery));
+                    }
                 }
-                // Combine snapshots results manually later
                 return snapshots;
             }
         };
 
-        // Helper to process results into the sections object
+        // Helper to process results
         const processResults = (results, sectionKey) => {
             const docs = Array.isArray(results) ? results.flatMap(snap => snap.docs) : results.docs;
             docs.forEach(doc => {
-                // Prevent duplicates
                 if (!sections[sectionKey].items.some(item => item.id === doc.id)) {
                     sections[sectionKey].items.push({ id: doc.id, ...doc.data() });
                 }
@@ -1343,46 +1342,40 @@ const renderApprovals = async () => {
 
         const promises = [];
 
-        // --- 3. EXECUTE QUERIES BASED ON CAPABILITIES ---
+        // --- 3. EXECUTE QUERIES ---
 
-        // A. LEAVE REQUESTS (Strictly for General Managers)
-        // Finance & Purchaser will SKIP this block entirely.
+        // A. LEAVE REQUESTS (1 Status: 'Pending' -> Chunk Size 30)
         if (isGeneralManager) {
             promises.push(fetchScopedDocs('requests', 'Pending')
                 .then(res => processResults(res, 'requests')));
         }
 
-        // B. CLAIMS 
-        // Level 1: Managers (Pending)
+        // B. CLAIMS
         if (isGeneralManager) {
             promises.push(fetchScopedDocs('claims', 'Pending')
                 .then(res => processResults(res, 'claims')));
         }
-        // Level 2: Finance (Approved)
         if (isFinance) {
             promises.push(fetchScopedDocs('claims', 'Approved')
                 .then(res => processResults(res, 'claims')));
         }
 
         // C. PURCHASE REQUESTS
-        // Level 1: Managers (Pending)
         if (isGeneralManager) {
             promises.push(fetchScopedDocs('purchaseRequests', 'Pending')
                 .then(res => processResults(res, 'purchaseRequests')));
         }
-        // Level 2: Purchasers (Approved or Processing)
+        // Level 2: Purchasers (2 Statuses: 'Approved', 'Processing' -> Chunk Size 15)
         if (isPurchaser) {
             promises.push(fetchScopedDocs('purchaseRequests', ['Approved', 'Processing'])
                 .then(res => processResults(res, 'purchaseRequests')));
         }
 
         // D. BILL PAYMENTS
-        // Level 1: Managers (Pending Approval)
         if (isGeneralManager) {
             promises.push(fetchScopedDocs('paymentRequests', 'Pending Approval')
                 .then(res => processResults(res, 'paymentRequests')));
         }
-        // Level 2: Finance (Pending Finance)
         if (isFinance) {
             promises.push(fetchScopedDocs('paymentRequests', 'Pending Finance')
                 .then(res => processResults(res, 'paymentRequests')));
@@ -1397,7 +1390,6 @@ const renderApprovals = async () => {
             if (section.items.length > 0) {
                 finalHtml += `<div class="bg-white p-6 rounded-lg shadow"><h3 class="text-xl font-semibold mb-4">${section.title}</h3><div class="space-y-4">`;
                 
-                // Sort items by date (oldest first usually for approvals, or newest. Let's do newest)
                 section.items.sort((a, b) => b.createdAt - a.createdAt);
 
                 section.items.forEach(item => {
