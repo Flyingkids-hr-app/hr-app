@@ -1383,14 +1383,43 @@ const renderApprovals = async () => {
 
         await Promise.all(promises);
 
-        // --- 4. RENDER HTML ---
+// --- 4. RENDER HTML ---
         let finalHtml = '';
         for (const key in sections) {
             const section = sections[key];
             if (section.items.length > 0) {
                 finalHtml += `<div class="bg-white p-6 rounded-lg shadow"><h3 class="text-xl font-semibold mb-4">${section.title}</h3><div class="space-y-4">`;
                 
-                section.items.sort((a, b) => b.createdAt - a.createdAt);
+                // --- START: CUSTOM SORTING LOGIC ---
+                if (key === 'purchaseRequests') {
+                    // SPECIAL LOGIC FOR PURCHASERS
+                    // Layer 1: Status (Approved on top, Processing below)
+                    // Layer 2: Date (Oldest on top / Ascending)
+                    section.items.sort((a, b) => {
+                        // 1. Define Weight: Approved = 1, Processing = 2, Others = 3
+                        const getWeight = (status) => {
+                            if (status === 'Approved') return 1;
+                            if (status === 'Processing') return 2;
+                            return 3;
+                        };
+
+                        const weightA = getWeight(a.status);
+                        const weightB = getWeight(b.status);
+
+                        if (weightA !== weightB) {
+                            return weightA - weightB; // Lower weight (Approved) comes first
+                        }
+
+                        // 2. If Status is the same, sort by Date ASCENDING (Oldest first)
+                        return a.createdAt - b.createdAt;
+                    });
+
+                } else {
+                    // STANDARD LOGIC FOR EVERYONE ELSE (HR, Finance, Managers)
+                    // Sort by Date DESCENDING (Newest first) so they see fresh requests immediately
+                    section.items.sort((a, b) => b.createdAt - a.createdAt);
+                }
+                // --- END: CUSTOM SORTING LOGIC ---
 
                 section.items.forEach(item => {
                     let summary = '';
@@ -1399,21 +1428,28 @@ const renderApprovals = async () => {
                     if (key === 'purchaseRequests') summary = `${item.itemDescription}`;
                     if (key === 'paymentRequests') summary = `${item.vendorName} for RM${item.amount.toFixed(2)}`;
                     
+                    // Optional: Add the date display like we discussed, or keep it simple. 
+                    // Let's add the Submitted Date text for clarity since we are sorting by it.
+                    const submittedDate = item.createdAt ? formatDate(item.createdAt) : 'N/A';
+
                     finalHtml += `
-                        <div class="bg-gray-50 p-4 rounded-lg flex items-center justify-between">
+                        <div class="bg-gray-50 p-4 rounded-lg flex items-center justify-between hover:bg-gray-100 transition-colors">
                             <div>
                                 <p class="font-bold text-gray-800">${item.userName}</p>
-                                <p class="text-sm text-gray-600">${summary}</p>
-                                <p class="text-xs text-gray-500">${item.department} • ${item.status}</p>
+                                <p class="text-sm text-gray-900 font-medium">${summary}</p>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    <span>${item.department}</span> • 
+                                    <span class="${item.status === 'Approved' ? 'text-green-600 font-bold' : 'text-purple-600 font-bold'}">${item.status}</span>
+                                    <span class="ml-2 text-gray-400">(${submittedDate})</span>
+                                </div>
                             </div>
-                            <button class="view-details-button bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600" data-id="${item.id}" data-type="${key}">View</button>
+                            <button class="view-details-button bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 shadow-sm whitespace-nowrap ml-4" data-id="${item.id}" data-type="${key}">View</button>
                         </div>
                     `;
                 });
                 finalHtml += `</div></div>`;
             }
         }
-
         if (finalHtml === '') {
             finalHtml = `<div class="bg-white p-6 rounded-lg shadow text-center text-gray-500">No pending approvals found for your roles.</div>`;
         }
