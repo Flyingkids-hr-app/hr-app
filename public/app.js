@@ -3006,6 +3006,14 @@ const renderBillPaymentsReport = () => {
                 onExport: () => exportToCSV(dataForExport, 'bill-payments-report') 
             });
             
+            // Set default date range: first of current month to today
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const startInput = document.getElementById('report-start-date');
+            const endInput = document.getElementById('report-end-date');
+            if (startInput) startInput.value = startOfMonth.toISOString().split('T')[0];
+            if (endInput) endInput.value = today.toISOString().split('T')[0];
+
             // 3. Load the initial data
             fetchData();
         } catch (error) {
@@ -3020,37 +3028,40 @@ const renderBillPaymentsReport = () => {
 
         // Role-based query logic
         const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('Finance');
-        let q = query(collection(db, 'paymentRequests'), orderBy('createdAt', 'desc'));
+
+        const startDateValue = document.getElementById('report-start-date')?.value;
+        const endDateValue = document.getElementById('report-end-date')?.value;
+        const status = document.getElementById('report-status')?.value;
+        const department = document.getElementById('report-department')?.value;
+
+        const startDateObj = startDateValue ? new Date(startDateValue) : null;
+        const endDateObj = endDateValue ? new Date(endDateValue) : null;
+        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+
+        const constraints = [];
 
         if (!canSeeAll) {
             const deptsToView = userData.managedDepartments || [];
             if (deptsToView.length > 0) {
-                q = query(q, where('department', 'in', deptsToView));
+                constraints.push(where('department', 'in', deptsToView));
             } else {
                 dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to any departments.</p>`;
                 return;
             }
         }
 
-        // Apply filters
-        const startDate = document.getElementById('report-start-date')?.value;
-        const endDate = document.getElementById('report-end-date')?.value;
-        const status = document.getElementById('report-status')?.value;
-        const department = document.getElementById('report-department')?.value;
+        if (department) constraints.push(where('department', '==', department));
+        if (status) constraints.push(where('status', '==', status));
+        if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
+        if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
 
-        // Note: Firestore requires date queries to be on the same field. We'll use createdAt.
-        if (startDate) q = query(q, where('createdAt', '>=', new Date(startDate)));
-        if (endDate) {
-             const end = new Date(endDate);
-             end.setHours(23, 59, 59, 999); // Include the entire end day
-             q = query(q, where('createdAt', '<=', end));
-        }
-        if (status) q = query(q, where('status', '==', status));
-        if (department) q = query(q, where('department', '==', department));
+        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+
+        const q = query(collection(db, 'paymentRequests'), ...constraints);
         
         try {
             const querySnapshot = await getDocs(q);
-            const payments = querySnapshot.docs.map(doc => doc.data());
+            const payments = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             
             // 5. Prepare data for CSV Export (including new fields)
             dataForExport = payments.map(req => {
@@ -3064,82 +3075,91 @@ const renderBillPaymentsReport = () => {
                 return {
                     Submitted_By: req.userName,
                     Department: req.department,
-                    Submitted_On: formatDateTime(req.createdAt.toDate()),
+                    Submitted_On: req.createdAt ? formatDateForCSV(req.createdAt) : 'N/A',
                     Vendor: req.vendorName,
                     Amount: req.amount.toFixed(2),
                     Billing_Date: formatDate(req.billingDate),
                     Status: req.status,
-                    Processed_On: req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A',
+                    Processed_On: req.processedAt ? formatDateForCSV(req.processedAt) : 'N/A',
                     Processed_By: processedByName,
                     Notes: req.notes || '',
                     Invoice_URL: req.invoiceUrl
                 };
             });
 
-            // 6. Render the HTML Table
+            // 6. Render the HTML Table with corrected spacing
             let tableHTML = `
-                <div class="overflow-x-auto">
+                <div class="mt-6 overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
-<thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor / Submitted By</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Billing Date</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submitted On</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processed At / By</th>
-                    </tr>
-                </thead>                       <tbody class="bg-white divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor / Submitted By</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Billing Date</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submitted On</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Processed At / By</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
             `;
 
-if (payments.length === 0) {
-                tableHTML += `<tr><td colspan="7" class="p-4 text-center text-gray-500">No bill payments found.</td></tr>`;
-            } else {
-                payments.forEach(req => {
-                    // --- THIS IS THE MISSING LOGIC ---
-                    const statusColor = {
-                        'Pending Approval': 'bg-yellow-100 text-yellow-800',
-                        'Pending Finance': 'bg-blue-100 text-blue-800',
-                        'Paid': 'bg-green-100 text-green-800',
-                        'Rejected': 'bg-red-100 text-red-800'
-                    }[req.status] || 'bg-gray-100 text-gray-800';
+            if (payments.length === 0) {
+                tableHTML += `<tr><td colspan="8" class="p-4 text-center text-gray-500">No bill payments found.</td></tr>`;
+            } else {
+                payments.forEach(req => {
+                    const statusColor = {
+                        'Pending Approval': 'bg-yellow-100 text-yellow-800',
+                        'Pending Finance': 'bg-blue-100 text-blue-800',
+                        'Paid': 'bg-green-100 text-green-800',
+                        'Rejected': 'bg-red-100 text-red-800'
+                    }[req.status] || 'bg-gray-100 text-gray-800';
 
-                    let processedByText = 'N/A';
-                    if (req.status === 'Pending Finance' || req.status === 'Rejected') {
-                        processedByText = userMap.get(req.approvedBy) || 'N/A';
-                    } else if (req.status === 'Paid') {
-                        processedByText = userMap.get(req.processedBy) || 'N/A';
-                 }
-                    
-                    const processedAtText = req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A';
-                    // --- END OF MISSING LOGIC ---
+                    let processedByText = 'N/A';
+                    if (req.status === 'Pending Finance' || req.status === 'Rejected') {
+                        processedByText = userMap.get(req.approvedBy) || req.approvedBy || 'N/A';
+                    } else if (req.status === 'Paid') {
+                        processedByText = userMap.get(req.processedBy) || req.processedBy || 'N/A';
+                    }
+                    
+                    const processedAtText = req.processedAt ? formatDateTime(req.processedAt.toDate()) : 'N/A';
 
-                    tableHTML += `
-                       <tr>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="font-medium text-gray-900">${req.vendorName}</div>
-                                <div class="text-sm text-gray-500">by ${req.userName}</div>
-                       </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${req.department}</td>
-                            <td class="px-6 py-4 whitespace-nowrap font-semibold">RM ${req.amount.toFixed(2)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDate(req.billingDate)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(req.createdAt.toDate())}</td>
-
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span>
-                            </td>
-                       <td class="px-6 py-4 whitespace-nowrap">
-                         <div class="text-sm text-gray-900">${processedAtText}</div>
-                                <div class="text-sm text-gray-500">${processedByText}</div>
-
-                            </td>
-                        </tr>
-                   `;
-                });
-            }           
+                    tableHTML += `
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="font-medium text-gray-900">${req.vendorName}</div>
+                                <div class="text-xs text-gray-500">by ${req.userName}</div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${req.department}</td>
+                            <td class="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">RM ${req.amount.toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDate(req.billingDate)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatDateTime(req.createdAt.toDate())}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">
+                                    ${req.status}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900">${processedAtText}</div>
+                                <div class="text-xs text-gray-500">${processedByText}</div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <button class="view-payment-btn text-indigo-600 hover:text-indigo-900" data-id="${req.id}">View</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+            
             tableHTML += `</tbody></table></div>`;
             dataContainer.innerHTML = tableHTML;
+
+            // Attach view handlers for auditing
+            document.querySelectorAll('.view-payment-btn').forEach(btn => {
+                btn.addEventListener('click', () => openRequestDetailsModal(btn.dataset.id, 'paymentRequests', false));
+            });
 
         } catch (error) {
             console.error("Error fetching bill payments report: ", error);
@@ -3259,53 +3279,134 @@ const renderAnnouncementsReport = async () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
     let currentAnnouncementsData = [];
+    let dataForExport = [];
 
-    // This function will now be called by the shared filter logic
+    const openViewAnnouncementDetailModal = (announcementId) => {
+        const ann = currentAnnouncementsData.find(a => a.id === announcementId);
+        if (!ann) return;
+        const modal = document.getElementById('view-announcement-detail-modal');
+        const titleEl = document.getElementById('view-announcement-detail-title');
+        const creatorEl = document.getElementById('view-announcement-detail-creator');
+        const dateEl = document.getElementById('view-announcement-detail-date');
+        const deptsEl = document.getElementById('view-announcement-detail-departments');
+        const contentEl = document.getElementById('view-announcement-detail-content');
+        const imgWrapper = document.getElementById('view-announcement-detail-image-wrapper');
+        const imgEl = document.getElementById('view-announcement-detail-image');
+        const videoWrapper = document.getElementById('view-announcement-detail-video-wrapper');
+        const videoEl = document.getElementById('view-announcement-detail-video');
+        const attachWrapper = document.getElementById('view-announcement-detail-attachment-wrapper');
+        const attachEl = document.getElementById('view-announcement-detail-attachment');
+
+        titleEl.textContent = ann.title || 'N/A';
+        creatorEl.textContent = ann.creatorName || 'N/A';
+        dateEl.textContent = ann.createdAt ? formatDateTime(ann.createdAt.toDate()) : 'N/A';
+        deptsEl.textContent = ann.targetDepartments?.includes('__ALL__') ? 'All Departments' : (ann.targetDepartments || []).join(', ');
+        contentEl.textContent = ann.content || 'N/A';
+
+        if (ann.imageUrl) {
+            imgWrapper.classList.remove('hidden');
+            imgEl.src = ann.imageUrl;
+            imgEl.alt = ann.title || 'Announcement Image';
+        } else {
+            imgWrapper.classList.add('hidden');
+            imgEl.removeAttribute('src');
+        }
+
+        if (ann.videoUrl) {
+            videoWrapper.classList.remove('hidden');
+            videoEl.href = ann.videoUrl;
+        } else {
+            videoWrapper.classList.add('hidden');
+            videoEl.removeAttribute('href');
+        }
+
+        if (ann.attachmentFileUrl) {
+            attachWrapper.classList.remove('hidden');
+            attachEl.href = ann.attachmentFileUrl;
+        } else {
+            attachWrapper.classList.add('hidden');
+            attachEl.removeAttribute('href');
+        }
+
+        modal.classList.remove('hidden');
+    };
+
+    const closeViewAnnouncementDetailModal = () => {
+        const modal = document.getElementById('view-announcement-detail-modal');
+        modal.classList.add('hidden');
+    };
+
     const fetchData = async () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching announcements...</p>`;
         
         const isDirector = userData.roles.includes('Director');
-        let q;
-        const departmentFilter = document.getElementById('report-department')?.value;
         const managedDepartments = userData.managedDepartments || [];
+        const departmentFilter = document.getElementById('report-department')?.value;
+        const startDateValue = document.getElementById('report-start-date')?.value;
+        const endDateValue = document.getElementById('report-end-date')?.value;
+
+        const startDateObj = startDateValue ? new Date(startDateValue) : null;
+        const endDateObj = endDateValue ? new Date(endDateValue) : null;
+        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+
+        if (!startDateObj || !endDateObj) {
+            dataContainer.innerHTML = `<p class="text-center p-4 text-red-600">Please select a start and end date.</p>`;
+            return;
+        }
+
+        const constraints = [];
 
         if (isDirector) {
-            q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-            if (departmentFilter) {
-                q = query(q, where('targetDepartments', 'array-contains', departmentFilter));
-            }
+            if (departmentFilter) constraints.push(where('targetDepartments', 'array-contains', departmentFilter));
         } else {
             if (managedDepartments.length === 0) {
-                 dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to manage any departments.</p>`;
-                 return;
+                dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to manage any departments.</p>`;
+                return;
             }
-            q = query(collection(db, 'announcements'), where('targetDepartments', 'array-contains-any', managedDepartments), orderBy('createdAt', 'desc'));
             if (departmentFilter) {
-                q = query(collection(db, 'announcements'), where('targetDepartments', 'array-contains', departmentFilter), orderBy('createdAt', 'desc'));
+                constraints.push(where('targetDepartments', 'array-contains', departmentFilter));
+            } else {
+                constraints.push(where('targetDepartments', 'array-contains-any', managedDepartments));
             }
         }
+
+        constraints.push(where('createdAt', '>=', startDateObj));
+        constraints.push(where('createdAt', '<=', endDateObj));
+        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+
+        const q = query(collection(db, 'announcements'), ...constraints);
 
         try {
             const snapshot = await getDocs(q);
             currentAnnouncementsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
+            dataForExport = currentAnnouncementsData.map(ann => ({
+                Title: ann.title,
+                Created_By: ann.creatorName,
+                Submitted_On: ann.createdAt ? formatDateForCSV(ann.createdAt) : 'N/A',
+                Departments: ann.targetDepartments?.includes('__ALL__') ? 'All Departments' : (ann.targetDepartments || []).join(', '),
+                Content: ann.content || '',
+                Image_URL: ann.imageUrl || 'N/A',
+                Video_URL: ann.videoUrl || 'N/A',
+                Attachment_URL: ann.attachmentFileUrl || 'N/A'
+            }));
+
             let tableHTML = `<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created By</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Departments</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
             if (currentAnnouncementsData.length === 0) {
                 tableHTML += `<tr><td colspan="5" class="p-4 text-center text-gray-500">No announcements found.</td></tr>`;
             } else {
-                 currentAnnouncementsData.forEach(ann => {
-                    if (isDirector || ann.targetDepartments.some(d => managedDepartments.includes(d)) || ann.targetDepartments.includes('__ALL__')) {
-                        const depts = ann.targetDepartments.includes('__ALL__') ? 'All Departments' : ann.targetDepartments.join(', ');
-                        tableHTML += `<tr>
-                            <td class="px-6 py-4 whitespace-nowrap">${formatDate(ann.createdAt)}</td>
-                            <td class="px-6 py-4">${ann.title}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${ann.creatorName}</td>
-                            <td class="px-6 py-4">${depts}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                <button class="view-acknowledgements-btn text-indigo-600 hover:text-indigo-900" data-id="${ann.id}">View Status</button>
-                            </td>
-                        </tr>`;
-                    }
+                currentAnnouncementsData.forEach(ann => {
+                    const depts = ann.targetDepartments?.includes('__ALL__') ? 'All Departments' : (ann.targetDepartments || []).join(', ');
+                    tableHTML += `<tr>
+                        <td class="px-6 py-4 whitespace-nowrap">${ann.createdAt ? formatDate(ann.createdAt) : 'N/A'}</td>
+                        <td class="px-6 py-4">${ann.title}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${ann.creatorName}</td>
+                        <td class="px-6 py-4">${depts}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
+                            <button class="view-acknowledgements-btn text-indigo-600 hover:text-indigo-900" data-id="${ann.id}">View Status</button>
+                            <button class="view-details-btn text-indigo-600 hover:text-indigo-900" data-id="${ann.id}">View Details</button>
+                        </td>
+                    </tr>`;
                 });
             }
             tableHTML += `</tbody></table></div>`;
@@ -3314,18 +3415,32 @@ const renderAnnouncementsReport = async () => {
             document.querySelectorAll('.view-acknowledgements-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => openViewAcknowledgementsModal(e.currentTarget.dataset.id));
             });
+            document.querySelectorAll('.view-details-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => openViewAnnouncementDetailModal(e.currentTarget.dataset.id));
+            });
         } catch (error) {
             console.error("Error fetching announcements report:", error);
             dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading data.</p>`;
         }
     };
     
-    // Now this function calls the new shared filter function
     renderReportFilters(filtersContainer, {
+        showDateRange: true,
         showDepartment: true,
         onApply: fetchData,
-        onExport: () => console.log("Export for announcements not yet implemented.") // Placeholder
+        onExport: () => exportToCSV(dataForExport, 'announcements-report')
     });
+
+    // Set default dates to current month range
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const startInput = document.getElementById('report-start-date');
+    const endInput = document.getElementById('report-end-date');
+    if (startInput) startInput.value = startOfMonth.toISOString().split('T')[0];
+    if (endInput) endInput.value = today.toISOString().split('T')[0];
+    
+    document.getElementById('view-announcement-detail-close-button')?.addEventListener('click', closeViewAnnouncementDetailModal);
+    document.getElementById('view-announcement-detail-close-button-footer')?.addEventListener('click', closeViewAnnouncementDetailModal);
     
     fetchData(); // Initial load
 };
