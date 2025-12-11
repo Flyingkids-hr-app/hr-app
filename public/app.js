@@ -2835,6 +2835,15 @@ const renderPurchasingReport = () => {
                 onApply: fetchData,
                 onExport: () => exportToCSV(dataForExport, 'purchasing-report') 
             });
+
+            // Set default date range: first of current month to today
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const startInput = document.getElementById('report-start-date');
+            const endInput = document.getElementById('report-end-date');
+            if (startInput) startInput.value = startOfMonth.toISOString().split('T')[0];
+            if (endInput) endInput.value = today.toISOString().split('T')[0];
+
             fetchData();
         } catch (error) {
             console.error("Error fetching user list for report:", error);
@@ -2848,12 +2857,21 @@ const renderPurchasingReport = () => {
         const isManager = userData.roles.includes('DepartmentManager');
         const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('HR');
         
-        let q = query(collection(db, 'purchaseRequests'), orderBy('createdAt', 'desc'));
+        const status = document.getElementById('report-status')?.value;
+        const department = document.getElementById('report-department')?.value;
+        const startDateValue = document.getElementById('report-start-date')?.value;
+        const endDateValue = document.getElementById('report-end-date')?.value;
+
+        const startDateObj = startDateValue ? new Date(startDateValue) : null;
+        const endDateObj = endDateValue ? new Date(endDateValue) : null;
+        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+
+        const constraints = [];
 
         if (!canSeeAll) { // This will now correctly scope a Purchaser by their managed departments
             const deptsToView = userData.managedDepartments || [];
             if (deptsToView.length > 0) {
-                 q = query(q, where('department', 'in', deptsToView));
+                 constraints.push(where('department', 'in', deptsToView));
             } else {
                  // If a manager/purchaser has no managed departments, they see nothing
                  dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to any departments.</p>`;
@@ -2861,24 +2879,18 @@ const renderPurchasingReport = () => {
             }
         }
 
-        const status = document.getElementById('report-status')?.value;
-        const department = document.getElementById('report-department')?.value;
-        const startDate = document.getElementById('report-start-date')?.value;
-        const endDate = document.getElementById('report-end-date')?.value;
+        if (department) constraints.push(where('department', '==', department));
+        if (status) constraints.push(where('status', '==', status));
+        if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
+        if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
 
-        if (status) q = query(q, where('status', '==', status));
-        if (department) q = query(q, where('department', '==', department));
+        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+
+        const q = query(collection(db, 'purchaseRequests'), ...constraints);
         
         try {
             const querySnapshot = await getDocs(q);
             let purchases = querySnapshot.docs.map(doc => ({...doc.data(), id: doc.id}));
-
-            if (startDate) { purchases = purchases.filter(p => p.createdAt.toDate() >= new Date(startDate)); }
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                purchases = purchases.filter(p => p.createdAt.toDate() <= end);
-            }
             
             // NEW: Prepare enhanced data for CSV export
             dataForExport = purchases.map(req => {
@@ -2886,6 +2898,7 @@ const renderPurchasingReport = () => {
                 return {
                     Employee: req.userName,
                     Department: req.department,
+                    Submitted_On: req.createdAt ? formatDateForCSV(req.createdAt) : 'N/A',
                     Item: req.itemDescription,
                     Estimated_Cost: req.estimatedCost.toFixed(2),
                     Actual_Cost: req.actualCost ? req.actualCost.toFixed(2) : 'N/A',
@@ -2893,6 +2906,7 @@ const renderPurchasingReport = () => {
                     Status: req.status,
                     Approved_By: userMap.get(req.approvedBy) || req.approvedBy || 'N/A',
                     Processed_By: userMap.get(req.processedBy) || req.processedBy || 'N/A',
+                    Processed_On: req.processedAt ? formatDateForCSV(req.processedAt) : 'N/A',
                     Notes: req.purchaserNotes || ''
                 };
             });
@@ -2909,13 +2923,14 @@ const renderPurchasingReport = () => {
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Difference</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processed By</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
             `;
 
             if (purchases.length === 0) {
-                tableHTML += `<tr><td colspan="7" class="p-4 text-center text-gray-500">No purchasing data found.</td></tr>`;
+                tableHTML += `<tr><td colspan="8" class="p-4 text-center text-gray-500">No purchasing data found.</td></tr>`;
             } else {
                 purchases.forEach(req => {
                     const statusColor = { Pending: 'bg-yellow-100 text-yellow-800', Approved: 'bg-green-100 text-green-800', Rejected: 'bg-red-100 text-red-800', Processing: 'bg-purple-100 text-purple-800', Completed: 'bg-blue-100 text-blue-800' }[req.status] || 'bg-gray-100 text-gray-800';
@@ -2938,6 +2953,9 @@ const renderPurchasingReport = () => {
                             <td class="px-6 py-4 whitespace-nowrap font-bold ${differenceColor}">${differenceText}</td>
                             <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${req.status}</span></td>
                             <td class="px-6 py-4 whitespace-nowrap">${userMap.get(req.processedBy) || req.processedBy || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <button class="view-purchase-btn text-indigo-600 hover:text-indigo-900" data-id="${req.id}">View</button>
+                            </td>
                         </tr>
                     `;
                 });
@@ -2945,6 +2963,11 @@ const renderPurchasingReport = () => {
 
             tableHTML += `</tbody></table></div>`;
             dataContainer.innerHTML = tableHTML;
+
+            // Attach view handlers for auditing
+            document.querySelectorAll('.view-purchase-btn').forEach(btn => {
+                btn.addEventListener('click', () => openRequestDetailsModal(btn.dataset.id, 'purchaseRequests', false));
+            });
 
         } catch (error) {
             console.error("Error fetching purchasing report: ", error);
