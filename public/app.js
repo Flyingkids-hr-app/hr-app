@@ -3935,7 +3935,12 @@ const handleApproveRequest = async (e) => {
         }
         alert('Request approved successfully!');
         closeRequestDetailsModal();
-        navigateTo('approvals');
+        // Remove the item from the list without reloading the page to preserve scroll
+        const viewButton = document.querySelector(`button[data-id="${requestId}"]`);
+        if (viewButton) {
+            const listItem = viewButton.closest('.bg-gray-50');
+            if (listItem) listItem.remove();
+        }
     } catch (error) {
         console.error("Error approving request:", error);
         alert(`Failed to approve request: ${error}`);
@@ -3956,7 +3961,12 @@ const handleRejectRequest = async (e) => {
         // --- END: ADDED processedAt ---
         alert('Request rejected.');
         closeRequestDetailsModal();
-        navigateTo('approvals');
+        // Remove the item from the list without reloading the page to preserve scroll
+        const viewButton = document.querySelector(`button[data-id="${requestId}"]`);
+        if (viewButton) {
+            const listItem = viewButton.closest('.bg-gray-50');
+            if (listItem) listItem.remove();
+        }
     } catch (error) {
         console.error("Error rejecting request:", error);
         alert("Failed to reject request.");
@@ -3976,7 +3986,12 @@ const handleApproveClaim = async (e) => {
         });
         alert('Claim approved.');
         closeRequestDetailsModal();
-        navigateTo('approvals');
+        // Remove the item from the list without reloading the page to preserve scroll
+        const viewButton = document.querySelector(`button[data-id="${claimId}"]`);
+        if (viewButton) {
+            const listItem = viewButton.closest('.bg-gray-50');
+            if (listItem) listItem.remove();
+        }
     } catch (error) {
         console.error("Error approving claim:", error);
         alert("Failed to approve claim.");
@@ -4007,7 +4022,12 @@ const handleRejectClaim = async (e) => {
 
         alert('Claim rejected.');
         closeRequestDetailsModal();
-        navigateTo('approvals');
+        // Remove the item from the list without reloading the page to preserve scroll
+        const viewButton = document.querySelector(`button[data-id="${claimId}"]`);
+        if (viewButton) {
+            const listItem = viewButton.closest('.bg-gray-50');
+            if (listItem) listItem.remove();
+        }
     } catch (error) {
         console.error("Error rejecting claim:", error);
         alert("Failed to reject claim.");
@@ -4046,7 +4066,12 @@ const handlePurchaseUpdate = async (requestId, newStatus, userField) => {
         });
         alert(`Request marked as ${newStatus}.`);
         closeRequestDetailsModal();
-        navigateTo('approvals');
+        // Remove the item from the list without reloading the page to preserve scroll
+        const viewButton = document.querySelector(`button[data-id="${requestId}"]`);
+        if (viewButton) {
+            const listItem = viewButton.closest('.bg-gray-50');
+            if (listItem) listItem.remove();
+        }
     } catch (error) {
         console.error(`Error updating purchase request to ${newStatus}:`, error);
         alert(`Failed to update request.`);
@@ -5216,9 +5241,14 @@ const handleBillPaymentUpdate = async (requestId, newStatus, userField) => {
             [userField]: currentUser.email,
             processedAt: serverTimestamp()
         });
-        alert(`Request marked as ${newStatus}.`);
-        closeRequestDetailsModal();
-        navigateTo('approvals');
+        alert(`Request marked as ${newStatus}.`);
+        closeRequestDetailsModal();
+        // Remove the item from the list without reloading the page to preserve scroll
+        const viewButton = document.querySelector(`button[data-id="${requestId}"]`);
+        if (viewButton) {
+            const listItem = viewButton.closest('.bg-gray-50');
+            if (listItem) listItem.remove();
+        }
     } catch (error) {
         console.error(`Error updating bill payment to ${newStatus}:`, error);
         alert(`Failed to update request.`);
