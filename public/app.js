@@ -3240,6 +3240,262 @@ const renderAnnouncementsReport = async () => {
     fetchData(); // Initial load
 };
 
+// =================================================================================
+// NEW: Leave Balances Report
+// =================================================================================
+const renderLeaveBalanceReport = async () => {
+    const filtersContainer = document.getElementById('report-filters');
+    const dataContainer = document.getElementById('report-data-container');
+    let leaveBalanceData = [];
+
+    dataContainer.innerHTML = `<p class="text-center p-4">Please select filters and generate a report.</p>`;
+
+    try {
+        // --- ROLE-AWARE LOGIC START ---
+        const isDirector = userData.roles.includes('Director');
+        
+        // 1. Determine which departments the user is allowed to see.
+        const departmentsToDisplay = isDirector 
+            ? appConfig.availableDepartments 
+            : (userData.managedDepartments || []);
+
+        if (departmentsToDisplay.length === 0) {
+            filtersContainer.innerHTML = `<p class="text-center p-4 text-gray-600">You are not assigned to any departments to generate a report for.</p>`;
+            dataContainer.innerHTML = '';
+            return;
+        }
+        // --- ROLE-AWARE LOGIC END ---
+
+        // Get current year as default
+        const currentYear = new Date().getFullYear();
+
+        // --- UI Rendering ---
+        filtersContainer.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 p-4 border rounded-lg bg-gray-50">
+                <div>
+                    <label for="leave-balance-year" class="block text-sm font-medium text-gray-700 mb-2">Year</label>
+                    <input type="number" id="leave-balance-year" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm" value="${currentYear}" min="2020" max="2100">
+                </div>
+                <div>
+                    <label for="leave-balance-department" class="block text-sm font-medium text-gray-700 mb-2">Department</label>
+                    <select id="leave-balance-department" class="mt-1 block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm">
+                        <option value="">All Departments</option>
+                        ${departmentsToDisplay.map(dept => `<option value="${dept}">${dept}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <button id="generate-leave-balance-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 shadow">
+                        <i class="fas fa-cogs mr-2"></i>Generate Report
+                    </button>
+                </div>
+            </div>
+        `;
+
+        const generateBtn = document.getElementById('generate-leave-balance-btn');
+        const yearInput = document.getElementById('leave-balance-year');
+        const departmentSelect = document.getElementById('leave-balance-department');
+
+        const fetchAndRenderData = async () => {
+            const selectedYear = yearInput.value || currentYear;
+            const selectedDepartment = departmentSelect.value;
+
+            if (!selectedYear) {
+                alert('Please select a year.');
+                return;
+            }
+
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...';
+            dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading leave balances...</p>`;
+
+            try {
+                // Build query for active users
+                let usersQuery = query(
+                    collection(db, 'users'),
+                    where('status', '==', 'active'),
+                    orderBy('name')
+                );
+
+                // If department is selected, filter by it
+                if (selectedDepartment) {
+                    usersQuery = query(
+                        collection(db, 'users'),
+                        where('status', '==', 'active'),
+                        where('primaryDepartment', '==', selectedDepartment),
+                        orderBy('name')
+                    );
+                } else {
+                    // If no department selected, filter by allowed departments
+                    if (departmentsToDisplay.length > 0) {
+                        usersQuery = query(
+                            collection(db, 'users'),
+                            where('status', '==', 'active'),
+                            where('primaryDepartment', 'in', departmentsToDisplay),
+                            orderBy('name')
+                        );
+                    }
+                }
+
+                const usersSnapshot = await getDocs(usersQuery);
+                const users = usersSnapshot.docs.map(doc => ({ id: doc.id, email: doc.id, ...doc.data() }));
+
+                if (users.length === 0) {
+                    dataContainer.innerHTML = `<p class="text-center p-4 text-gray-500">No active users found for the selected criteria.</p>`;
+                    generateBtn.disabled = false;
+                    generateBtn.innerHTML = '<i class="fas fa-cogs mr-2"></i>Generate Report';
+                    return;
+                }
+
+                // Fetch leave quotas for all users
+                leaveBalanceData = [];
+                const quotaPromises = users.map(async (user) => {
+                    try {
+                        const quotaRef = doc(db, 'users', user.email, 'leaveQuotas', String(selectedYear));
+                        const quotaDoc = await getDoc(quotaRef);
+                        const quotaData = quotaDoc.exists() ? quotaDoc.data() : {};
+
+                        // Parse all quota types dynamically
+                        const quotaTypes = appConfig.requestTypes.filter(type => type.hasQuota);
+                        const balanceRow = {
+                            Name: user.name || 'N/A',
+                            Email: user.email || 'N/A',
+                            Department: user.primaryDepartment || 'N/A'
+                        };
+
+                        // For each quota type, calculate balance
+                        quotaTypes.forEach(type => {
+                            const quotaKey = `edit-${type.name.toLowerCase().replace(/ /g, '-')}`;
+                            const takenKey = `${quotaKey}-taken`;
+                            const total = quotaData[quotaKey] || 0;
+                            const taken = quotaData[takenKey] || 0;
+                            const balance = total - taken;
+                            
+                            // Add columns for this quota type
+                            balanceRow[`${type.name} Total`] = total;
+                            balanceRow[`${type.name} Used`] = taken;
+                            balanceRow[`${type.name} Balance`] = balance;
+                        });
+
+                        // Also check for any other keys starting with 'edit-' that might not be in requestTypes
+                        Object.keys(quotaData).forEach(key => {
+                            if (key.startsWith('edit-') && !key.endsWith('-taken')) {
+                                const takenKey = `${key}-taken`;
+                                const total = quotaData[key] || 0;
+                                const taken = quotaData[takenKey] || 0;
+                                const balance = total - taken;
+                                
+                                // Convert key to readable name (e.g., 'edit-annual-leave' -> 'Annual Leave')
+                                const readableName = key.replace('edit-', '').split('-').map(word => 
+                                    word.charAt(0).toUpperCase() + word.slice(1)
+                                ).join(' ');
+                                
+                                // Only add if not already added by requestTypes
+                                if (!balanceRow[`${readableName} Total`]) {
+                                    balanceRow[`${readableName} Total`] = total;
+                                    balanceRow[`${readableName} Used`] = taken;
+                                    balanceRow[`${readableName} Balance`] = balance;
+                                }
+                            }
+                        });
+
+                        return balanceRow;
+                    } catch (error) {
+                        console.error(`Error fetching quota for user ${user.email}:`, error);
+                        return {
+                            Name: user.name || 'N/A',
+                            Email: user.email || 'N/A',
+                            Department: user.primaryDepartment || 'N/A',
+                            Error: 'Failed to load quota'
+                        };
+                    }
+                });
+
+                const balanceRows = await Promise.all(quotaPromises);
+                leaveBalanceData = balanceRows;
+
+                // Generate table headers dynamically
+                const headers = leaveBalanceData.length > 0 ? Object.keys(leaveBalanceData[0]) : ['Name', 'Email', 'Department'];
+
+                // Render table
+                let tableHTML = `
+                    <div class="overflow-x-auto mb-4">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    ${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${h}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                `;
+
+                if (leaveBalanceData.length === 0) {
+                    tableHTML += `<tr><td colspan="${headers.length}" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">No leave balance data found.</td></tr>`;
+                } else {
+                    leaveBalanceData.forEach(row => {
+                        tableHTML += `<tr>`;
+                        headers.forEach(header => {
+                            const value = row[header] !== undefined && row[header] !== null ? row[header] : 'N/A';
+                            const cellClass = header.includes('Balance') && typeof value === 'number' && value < 0 
+                                ? 'px-6 py-4 whitespace-nowrap text-sm text-red-600 font-semibold' 
+                                : 'px-6 py-4 whitespace-nowrap text-sm text-gray-700';
+                            tableHTML += `<td class="${cellClass}">${value}</td>`;
+                        });
+                        tableHTML += `</tr>`;
+                    });
+                }
+
+                tableHTML += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+
+                dataContainer.innerHTML = tableHTML;
+
+                // Remove old export button container if exists
+                const oldExportContainer = filtersContainer.querySelector('#leave-balance-export-container');
+                if (oldExportContainer) {
+                    oldExportContainer.remove();
+                }
+                
+                // Add Export CSV button
+                const exportBtn = document.createElement('button');
+                exportBtn.id = 'export-leave-balance-csv-btn';
+                exportBtn.className = 'w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 shadow-sm';
+                exportBtn.innerHTML = `<i class="fas fa-file-csv mr-2"></i>Export CSV`;
+                exportBtn.addEventListener('click', () => {
+                    exportToCSV(leaveBalanceData, `leave-balances-${selectedYear}${selectedDepartment ? '-' + selectedDepartment.replace(/ /g, '_') : ''}`);
+                });
+                
+                // Append export button to filters container
+                const exportContainer = document.createElement('div');
+                exportContainer.id = 'leave-balance-export-container';
+                exportContainer.className = 'mt-4';
+                exportContainer.appendChild(exportBtn);
+                filtersContainer.appendChild(exportContainer);
+
+            } catch (error) {
+                console.error('Error fetching leave balances:', error);
+                dataContainer.innerHTML = `<p class="text-center p-4 text-red-600">Error loading leave balances: ${error.message}</p>`;
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = '<i class="fas fa-cogs mr-2"></i>Generate Report';
+            }
+        };
+
+        // Event listeners
+        generateBtn.addEventListener('click', fetchAndRenderData);
+        
+        // Auto-generate on initial load
+        fetchAndRenderData();
+
+    } catch (error) {
+        console.error('Error initializing leave balance report:', error);
+        filtersContainer.innerHTML = `<p class="text-center p-4 text-red-600">Error initializing report: ${error.message}</p>`;
+        dataContainer.innerHTML = '';
+    }
+};
+
 // --- And then REPLACE the existing loadReport and renderReports functions ---
 const loadReport = (reportType) => {
     const contentContainer = document.getElementById('report-content-container');
@@ -3260,6 +3516,9 @@ const loadReport = (reportType) => {
             break;
         case 'leave':
             renderLeaveReport();
+            break;
+        case 'leave-balances':
+            renderLeaveBalanceReport();
             break;
         case 'claims':
             renderClaimsReport();
@@ -3292,6 +3551,7 @@ const renderReports = async () => {
         { id: 'exceptions', label: 'Attendance Exceptions' },
         { id: 'support', label: 'Support Tickets' },
         { id: 'leave', label: 'Leave / OT' },
+        { id: 'leave-balances', label: 'Leave Balances' },
         { id: 'claims', label: 'Claims' },
         { id: 'purchasing', label: 'Purchasing' },
         { id: 'bill-payments', label: 'Bill Payments' },
