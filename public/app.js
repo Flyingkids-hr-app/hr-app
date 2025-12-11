@@ -2547,6 +2547,15 @@ const renderLeaveReport = () => {
                 onApply: fetchData,
                 onExport: () => exportToCSV(dataForExport, 'leave-ot-report')
             });
+
+            // Set default date range: first of current month to today
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const startInput = document.getElementById('report-start-date');
+            const endInput = document.getElementById('report-end-date');
+            if (startInput) startInput.value = startOfMonth.toISOString().split('T')[0];
+            if (endInput) endInput.value = today.toISOString().split('T')[0];
+
             fetchData();
         } catch (error) {
             console.error("Error fetching user list for report:", error);
@@ -2558,21 +2567,29 @@ const renderLeaveReport = () => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching leave data...</p>`;
         
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director') && !userData.roles.includes('HR');
-        let q = query(collection(db, 'requests'), orderBy('createdAt', 'desc'));
 
-        if (isManager && userData.managedDepartments?.length > 0) {
-            q = query(q, where('department', 'in', userData.managedDepartments));
-        }
-
-        const startDate = document.getElementById('report-start-date')?.value;
-        const endDate = document.getElementById('report-end-date')?.value;
+        const startDateValue = document.getElementById('report-start-date')?.value;
+        const endDateValue = document.getElementById('report-end-date')?.value;
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
 
-        if (startDate) q = query(q, where('startDate', '>=', startDate));
-        if (endDate) q = query(q, where('startDate', '<=', endDate));
-        if (status) q = query(q, where('status', '==', status));
-        if (department) q = query(q, where('department', '==', department));
+        const startDateObj = startDateValue ? new Date(startDateValue) : null;
+        const endDateObj = endDateValue ? new Date(endDateValue) : null;
+        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+
+        const constraints = [];
+
+        if (isManager && userData.managedDepartments?.length > 0) {
+            constraints.push(where('department', 'in', userData.managedDepartments));
+        }
+        if (department) constraints.push(where('department', '==', department));
+        if (status) constraints.push(where('status', '==', status));
+        if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
+        if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
+
+        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+
+        const q = query(collection(db, 'requests'), ...constraints);
 
         try {
             const querySnapshot = await getDocs(q);
