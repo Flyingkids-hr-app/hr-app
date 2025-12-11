@@ -2393,7 +2393,6 @@ const renderExceptionsReport = () => {
 const renderSupportTicketsReport = () => {
     const filtersContainer = document.getElementById('report-filters');
     const dataContainer = document.getElementById('report-data-container');
-    let allTickets = [];
     let dataForExport = [];
 
     const fetchDataAndRender = async () => {
@@ -2402,42 +2401,51 @@ const renderSupportTicketsReport = () => {
             // This section remains the same, ensuring data is scoped correctly
             const isDirector = userData.roles.includes('Director');
             const managedDepartments = userData.managedDepartments || [];
-            if (allTickets.length === 0) {
-                let ticketsQuery;
-                if (isDirector) {
-                    ticketsQuery = query(collection(db, 'supportRequests'), orderBy('createdAt', 'desc'));
-                } else {
-                    if (managedDepartments.length === 0) {
-                        dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to manage any departments.</p>`;
-                        return;
-                    }
-                    const usersInDeptsQuery = query(collection(db, 'users'), where('primaryDepartment', 'in', managedDepartments));
-                    const usersSnapshot = await getDocs(usersInDeptsQuery);
-                    const userEmails = usersSnapshot.docs.map(doc => doc.id);
-                    if (userEmails.length === 0) {
-                        dataContainer.innerHTML = `<p class="text-center p-4">No users found in your managed departments.</p>`;
-                        return;
-                    }
-                    if (userEmails.length > 30) {
-                        console.warn("Querying for more than 30 users in support tickets. This may lead to incomplete results.");
-                    }
-                    ticketsQuery = query(collection(db, 'supportRequests'), where('requesterId', 'in', userEmails), orderBy('createdAt', 'desc'));
+            // Use current filter dates to scope the fetch every time
+            const startDateValue = document.getElementById('report-start-date')?.value;
+            const endDateValue = document.getElementById('report-end-date')?.value;
+            const startDateObj = startDateValue ? new Date(startDateValue) : null;
+            const endDateObj = endDateValue ? new Date(endDateValue) : null;
+            if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+
+            let ticketsQuery;
+            if (isDirector) {
+                const constraints = [];
+                if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
+                if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
+                constraints.push(orderBy('createdAt', 'desc'), limit(50));
+                ticketsQuery = query(collection(db, 'supportRequests'), ...constraints);
+            } else {
+                if (managedDepartments.length === 0) {
+                    dataContainer.innerHTML = `<p class="text-center p-4">You are not assigned to manage any departments.</p>`;
+                    return;
                 }
-                const querySnapshot = await getDocs(ticketsQuery);
-                allTickets = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const usersInDeptsQuery = query(collection(db, 'users'), where('primaryDepartment', 'in', managedDepartments));
+                const usersSnapshot = await getDocs(usersInDeptsQuery);
+                const userEmails = usersSnapshot.docs.map(doc => doc.id);
+                if (userEmails.length === 0) {
+                    dataContainer.innerHTML = `<p class="text-center p-4">No users found in your managed departments.</p>`;
+                    return;
+                }
+                if (userEmails.length > 30) {
+                    console.warn("Querying for more than 30 users in support tickets. This may lead to incomplete results.");
+                }
+                const constraints = [where('requesterId', 'in', userEmails)];
+                if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
+                if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
+                constraints.push(orderBy('createdAt', 'desc'), limit(50));
+                ticketsQuery = query(collection(db, 'supportRequests'), ...constraints);
             }
-            
-            // Client-side filtering remains the same
+            const querySnapshot = await getDocs(ticketsQuery);
+            const tickets = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Client-side filtering for status/assignee only (date is server-side)
             const status = document.getElementById('report-status')?.value;
             const assigneeId = document.getElementById('report-assignee')?.value;
-            const startDate = document.getElementById('report-start-date')?.value;
-            const endDate = document.getElementById('report-end-date')?.value;
 
-            let filteredTickets = allTickets;
+            let filteredTickets = tickets;
             if (status) { filteredTickets = filteredTickets.filter(t => t.status === status); }
             if (assigneeId) { filteredTickets = filteredTickets.filter(t => t.assigneeId === assigneeId); }
-            if (startDate) { const start = new Date(startDate); filteredTickets = filteredTickets.filter(t => t.createdAt.toDate() >= start); }
-            if (endDate) { const end = new Date(endDate); end.setHours(23, 59, 59, 999); filteredTickets = filteredTickets.filter(t => t.createdAt.toDate() <= end); }
 
             // --- CHANGE 1: Add "CompletedOn" to the CSV export data ---
             dataForExport = filteredTickets.map(ticket => ({
@@ -2451,10 +2459,10 @@ const renderSupportTicketsReport = () => {
             }));
 
             // --- CHANGE 2: Add "Completed On" to the table header ---
-            let tableHTML = `<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created On</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed On</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assignee</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+            let tableHTML = `<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created On</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed On</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assignee</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
             
             if (filteredTickets.length === 0) {
-                tableHTML += `<tr><td colspan="6" class="p-4 text-center text-gray-500">No support tickets found for the selected filters.</td></tr>`;
+                tableHTML += `<tr><td colspan="7" class="p-4 text-center text-gray-500">No support tickets found for the selected filters.</td></tr>`;
             } else {
                 filteredTickets.forEach(ticket => {
                     const statusColor = { 'Open': 'bg-blue-100 text-blue-800', 'In Progress': 'bg-yellow-100 text-yellow-800', 'Completed': 'bg-purple-100 text-purple-800', 'Closed': 'bg-green-100 text-green-800' }[ticket.status] || 'bg-gray-100';
@@ -2466,11 +2474,19 @@ const renderSupportTicketsReport = () => {
                         <td class="px-6 py-4 whitespace-nowrap">${ticket.requesterName}</td>
                         <td class="px-6 py-4 whitespace-nowrap">${ticket.assigneeName}</td>
                         <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColor}">${ticket.status}</span></td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <button class="text-indigo-600 hover:text-indigo-900 view-ticket-btn" data-id="${ticket.id}">View</button>
+                        </td>
                     </tr>`;
                 });
             }
             tableHTML += `</tbody></table></div>`;
             dataContainer.innerHTML = tableHTML;
+
+            // Attach view handlers
+            document.querySelectorAll('.view-ticket-btn').forEach(btn => {
+                btn.addEventListener('click', () => openViewSupportModal(btn.dataset.id));
+            });
         } catch (error) {
             console.error("Error fetching support tickets:", error);
             dataContainer.innerHTML = `<p class="text-red-600 text-center p-4">Error loading support tickets.</p>`;
@@ -2494,6 +2510,14 @@ const renderSupportTicketsReport = () => {
                 </div>`;
             document.getElementById('apply-filters-btn').addEventListener('click', fetchDataAndRender);
             document.getElementById('export-csv-btn').addEventListener('click', () => exportToCSV(dataForExport, 'support-tickets-report'));
+
+            // Set default date range: first of current month to today
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const startInput = document.getElementById('report-start-date');
+            const endInput = document.getElementById('report-end-date');
+            if (startInput) startInput.value = startOfMonth.toISOString().split('T')[0];
+            if (endInput) endInput.value = today.toISOString().split('T')[0];
         } catch (error) {
             console.error("Error rendering filters:", error);
             filtersContainer.innerHTML = `<p class="text-red-600">Could not load filters.</p>`;
