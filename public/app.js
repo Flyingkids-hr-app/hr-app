@@ -3358,7 +3358,6 @@ const renderLeaveBalanceReport = async () => {
                         const quotaTypes = appConfig.requestTypes.filter(type => type.hasQuota);
                         const balanceRow = {
                             Name: user.name || 'N/A',
-                            Email: user.email || 'N/A',
                             Department: user.primaryDepartment || 'N/A'
                         };
 
@@ -3403,7 +3402,6 @@ const renderLeaveBalanceReport = async () => {
                         console.error(`Error fetching quota for user ${user.email}:`, error);
                         return {
                             Name: user.name || 'N/A',
-                            Email: user.email || 'N/A',
                             Department: user.primaryDepartment || 'N/A',
                             Error: 'Failed to load quota'
                         };
@@ -3414,7 +3412,7 @@ const renderLeaveBalanceReport = async () => {
                 leaveBalanceData = balanceRows;
 
                 // Generate table headers dynamically
-                const headers = leaveBalanceData.length > 0 ? Object.keys(leaveBalanceData[0]) : ['Name', 'Email', 'Department'];
+                const headers = leaveBalanceData.length > 0 ? Object.keys(leaveBalanceData[0]) : ['Name', 'Department'];
 
                 // Render table
                 let tableHTML = `
