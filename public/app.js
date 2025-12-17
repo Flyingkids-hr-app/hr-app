@@ -2395,15 +2395,15 @@ const renderSupportTicketsReport = () => {
     const dataContainer = document.getElementById('report-data-container');
     let dataForExport = [];
 
-    const fetchDataAndRender = async () => {
+    const fetchDataAndRender = async (startDate, endDate) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching support tickets...</p>`;
         try {
             // This section remains the same, ensuring data is scoped correctly
             const isDirector = userData.roles.includes('Director');
             const managedDepartments = userData.managedDepartments || [];
-            // Use current filter dates to scope the fetch every time
-            const startDateValue = document.getElementById('report-start-date')?.value;
-            const endDateValue = document.getElementById('report-end-date')?.value;
+            // Use provided dates or fallback to DOM values
+            const startDateValue = startDate || document.getElementById('report-start-date')?.value;
+            const endDateValue = endDate || document.getElementById('report-end-date')?.value;
             const startDateObj = startDateValue ? new Date(startDateValue) : null;
             const endDateObj = endDateValue ? new Date(endDateValue) : null;
             if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
@@ -2508,7 +2508,14 @@ const renderSupportTicketsReport = () => {
                     <div class="flex items-end"><button id="apply-filters-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">Apply Filters</button></div>
                     <div class="flex items-end"><button id="export-csv-btn" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700"><i class="fas fa-file-csv mr-2"></i>Export CSV</button></div>
                 </div>`;
-            document.getElementById('apply-filters-btn').addEventListener('click', fetchDataAndRender);
+            document.getElementById('apply-filters-btn').addEventListener('click', () => {
+                // Explicitly read DOM values inside the click handler
+                const startDateValue = document.getElementById('report-start-date')?.value;
+                const endDateValue = document.getElementById('report-end-date')?.value;
+                console.log('Fetching with dates:', startDateValue, endDateValue);
+                // Force fetch with the new dates as arguments
+                fetchDataAndRender(startDateValue, endDateValue);
+            });
             document.getElementById('export-csv-btn').addEventListener('click', () => exportToCSV(dataForExport, 'support-tickets-report'));
 
             // Set default date range: first of current month to today
@@ -2544,7 +2551,14 @@ const renderLeaveReport = () => {
                 showDateRange: true, 
                 showStatus: true, 
                 showDepartment: true, 
-                onApply: fetchData,
+                onApply: () => {
+                    // Explicitly read DOM values inside the click handler
+                    const startDateValue = document.getElementById('report-start-date')?.value;
+                    const endDateValue = document.getElementById('report-end-date')?.value;
+                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    // Force fetch with the new dates as arguments
+                    fetchData(startDateValue, endDateValue);
+                },
                 onExport: () => exportToCSV(dataForExport, 'leave-ot-report')
             });
 
@@ -2563,13 +2577,14 @@ const renderLeaveReport = () => {
         }
     };
 
-    const fetchData = async () => {
+    const fetchData = async (startDate, endDate) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching leave data...</p>`;
         
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director') && !userData.roles.includes('HR');
 
-        const startDateValue = document.getElementById('report-start-date')?.value;
-        const endDateValue = document.getElementById('report-end-date')?.value;
+        // Use provided dates or fallback to DOM values
+        const startDateValue = startDate || document.getElementById('report-start-date')?.value;
+        const endDateValue = endDate || document.getElementById('report-end-date')?.value;
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
 
@@ -2678,7 +2693,14 @@ const renderClaimsReport = () => {
                 showDateRange: true, 
                 showStatus: true, 
                 showDepartment: true, 
-                onApply: fetchData,
+                onApply: () => {
+                    // Explicitly read DOM values inside the click handler
+                    const startDateValue = document.getElementById('report-start-date')?.value;
+                    const endDateValue = document.getElementById('report-end-date')?.value;
+                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    // Force fetch with the new dates as arguments
+                    fetchData(startDateValue, endDateValue);
+                },
                 onExport: () => exportToCSV(dataForExport, 'claims-report')
             });
 
@@ -2697,14 +2719,15 @@ const renderClaimsReport = () => {
         }
     };
 
-    const fetchData = async () => {
+    const fetchData = async (startDate, endDate) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching claims data...</p>`;
 
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director');
         const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('HR');
         
-        const startDateValue = document.getElementById('report-start-date')?.value;
-        const endDateValue = document.getElementById('report-end-date')?.value;
+        // Use provided dates or fallback to DOM values
+        const startDateValue = startDate || document.getElementById('report-start-date')?.value;
+        const endDateValue = endDate || document.getElementById('report-end-date')?.value;
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
 
@@ -2832,7 +2855,14 @@ const renderPurchasingReport = () => {
                 showDateRange: true, 
                 showStatus: true, 
                 showDepartment: true, 
-                onApply: fetchData,
+                onApply: () => {
+                    // Explicitly read DOM values inside the click handler
+                    const startDateValue = document.getElementById('report-start-date')?.value;
+                    const endDateValue = document.getElementById('report-end-date')?.value;
+                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    // Force fetch with the new dates as arguments
+                    fetchData(startDateValue, endDateValue);
+                },
                 onExport: () => exportToCSV(dataForExport, 'purchasing-report') 
             });
 
@@ -2851,7 +2881,7 @@ const renderPurchasingReport = () => {
         }
     };
 
-    const fetchData = async () => {
+    const fetchData = async (startDate, endDate) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching purchasing data...</p>`;
 
         const isManager = userData.roles.includes('DepartmentManager');
@@ -2859,8 +2889,9 @@ const renderPurchasingReport = () => {
         
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
-        const startDateValue = document.getElementById('report-start-date')?.value;
-        const endDateValue = document.getElementById('report-end-date')?.value;
+        // Use provided dates or fallback to DOM values
+        const startDateValue = startDate || document.getElementById('report-start-date')?.value;
+        const endDateValue = endDate || document.getElementById('report-end-date')?.value;
 
         const startDateObj = startDateValue ? new Date(startDateValue) : null;
         const endDateObj = endDateValue ? new Date(endDateValue) : null;
@@ -3002,7 +3033,14 @@ const renderBillPaymentsReport = () => {
                 showDateRange: true, 
                 showStatus: true, 
                 showDepartment: true, 
-                onApply: fetchData,
+                onApply: () => {
+                    // Explicitly read DOM values inside the click handler
+                    const startDateValue = document.getElementById('report-start-date')?.value;
+                    const endDateValue = document.getElementById('report-end-date')?.value;
+                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    // Force fetch with the new dates as arguments
+                    fetchData(startDateValue, endDateValue);
+                },
                 onExport: () => exportToCSV(dataForExport, 'bill-payments-report') 
             });
             
@@ -3023,14 +3061,15 @@ const renderBillPaymentsReport = () => {
     };
 
     // 4. This function queries and displays the data
-    const fetchData = async () => {
+    const fetchData = async (startDate, endDate) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching bill payments data...</p>`;
 
         // Role-based query logic
         const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('Finance');
 
-        const startDateValue = document.getElementById('report-start-date')?.value;
-        const endDateValue = document.getElementById('report-end-date')?.value;
+        // Use provided dates or fallback to DOM values
+        const startDateValue = startDate || document.getElementById('report-start-date')?.value;
+        const endDateValue = endDate || document.getElementById('report-end-date')?.value;
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
 
