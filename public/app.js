@@ -2395,25 +2395,41 @@ const renderSupportTicketsReport = () => {
     const dataContainer = document.getElementById('report-data-container');
     let dataForExport = [];
 
-    const fetchDataAndRender = async (startDate, endDate) => {
+    const fetchDataAndRender = async (startDateInput, endDateInput) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching support tickets...</p>`;
         try {
             // This section remains the same, ensuring data is scoped correctly
             const isDirector = userData.roles.includes('Director');
             const managedDepartments = userData.managedDepartments || [];
-            // Use provided dates or fallback to DOM values
-            const startDateValue = startDate || document.getElementById('report-start-date')?.value;
-            const endDateValue = endDate || document.getElementById('report-end-date')?.value;
-            const startDateObj = startDateValue ? new Date(startDateValue) : null;
-            const endDateObj = endDateValue ? new Date(endDateValue) : null;
-            if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+            
+            // 1. Determine the raw date strings (Use arguments if provided, else use DOM or Defaults)
+            let startRaw = startDateInput || document.getElementById('report-start-date')?.value;
+            let endRaw = endDateInput || document.getElementById('report-end-date')?.value;
+
+            // 2. Convert to Firestore-compatible Date objects
+            // If no date is found, default to 1st of current month
+            let start = startRaw ? new Date(startRaw) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+            let end = endRaw ? new Date(endRaw) : new Date();
+
+            // 3. Set time boundaries (Start of Day vs End of Day)
+            start.setHours(0, 0, 0, 0);
+            end.setHours(23, 59, 59, 999);
+            
+            console.log('Querying Firestore with:', start, end); // Debug log
+
+            const startDateObj = start;
+            const endDateObj = end;
+
+            // Dynamic limit: 1000 if user provided specific dates (filtered), 50 for initial load
+            const isFiltered = startDateInput && endDateInput;
+            const queryLimit = isFiltered ? 1000 : 50;
 
             let ticketsQuery;
             if (isDirector) {
                 const constraints = [];
                 if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
                 if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
-                constraints.push(orderBy('createdAt', 'desc'), limit(50));
+                constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
                 ticketsQuery = query(collection(db, 'supportRequests'), ...constraints);
             } else {
                 if (managedDepartments.length === 0) {
@@ -2433,7 +2449,7 @@ const renderSupportTicketsReport = () => {
                 const constraints = [where('requesterId', 'in', userEmails)];
                 if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
                 if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
-                constraints.push(orderBy('createdAt', 'desc'), limit(50));
+                constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
                 ticketsQuery = query(collection(db, 'supportRequests'), ...constraints);
             }
             const querySnapshot = await getDocs(ticketsQuery);
@@ -2512,7 +2528,7 @@ const renderSupportTicketsReport = () => {
                 // Explicitly read DOM values inside the click handler
                 const startDateValue = document.getElementById('report-start-date')?.value;
                 const endDateValue = document.getElementById('report-end-date')?.value;
-                console.log('Fetching with dates:', startDateValue, endDateValue);
+                console.log('Applying filter with dates:', startDateValue, endDateValue);
                 // Force fetch with the new dates as arguments
                 fetchDataAndRender(startDateValue, endDateValue);
             });
@@ -2555,7 +2571,7 @@ const renderLeaveReport = () => {
                     // Explicitly read DOM values inside the click handler
                     const startDateValue = document.getElementById('report-start-date')?.value;
                     const endDateValue = document.getElementById('report-end-date')?.value;
-                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    console.log('Applying filter with dates:', startDateValue, endDateValue);
                     // Force fetch with the new dates as arguments
                     fetchData(startDateValue, endDateValue);
                 },
@@ -2577,20 +2593,35 @@ const renderLeaveReport = () => {
         }
     };
 
-    const fetchData = async (startDate, endDate) => {
+    const fetchData = async (startDateInput, endDateInput) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching leave data...</p>`;
         
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director') && !userData.roles.includes('HR');
 
-        // Use provided dates or fallback to DOM values
-        const startDateValue = startDate || document.getElementById('report-start-date')?.value;
-        const endDateValue = endDate || document.getElementById('report-end-date')?.value;
+        // 1. Determine the raw date strings (Use arguments if provided, else use DOM or Defaults)
+        let startRaw = startDateInput || document.getElementById('report-start-date')?.value;
+        let endRaw = endDateInput || document.getElementById('report-end-date')?.value;
+
+        // 2. Convert to Firestore-compatible Date objects
+        // If no date is found, default to 1st of current month
+        let start = startRaw ? new Date(startRaw) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        let end = endRaw ? new Date(endRaw) : new Date();
+
+        // 3. Set time boundaries (Start of Day vs End of Day)
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        
+        console.log('Querying Firestore with:', start, end); // Debug log
+
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
 
-        const startDateObj = startDateValue ? new Date(startDateValue) : null;
-        const endDateObj = endDateValue ? new Date(endDateValue) : null;
-        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = start;
+        const endDateObj = end;
+
+        // Dynamic limit: 1000 if user provided specific dates (filtered), 50 for initial load
+        const isFiltered = startDateInput && endDateInput;
+        const queryLimit = isFiltered ? 1000 : 50;
 
         const constraints = [];
 
@@ -2602,7 +2633,7 @@ const renderLeaveReport = () => {
         if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
         if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
 
-        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+        constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
 
         const q = query(collection(db, 'requests'), ...constraints);
 
@@ -2697,7 +2728,7 @@ const renderClaimsReport = () => {
                     // Explicitly read DOM values inside the click handler
                     const startDateValue = document.getElementById('report-start-date')?.value;
                     const endDateValue = document.getElementById('report-end-date')?.value;
-                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    console.log('Applying filter with dates:', startDateValue, endDateValue);
                     // Force fetch with the new dates as arguments
                     fetchData(startDateValue, endDateValue);
                 },
@@ -2719,21 +2750,36 @@ const renderClaimsReport = () => {
         }
     };
 
-    const fetchData = async (startDate, endDate) => {
+    const fetchData = async (startDateInput, endDateInput) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching claims data...</p>`;
 
         const isManager = userData.roles.includes('DepartmentManager') && !userData.roles.includes('Director');
         const canSeeAll = userData.roles.includes('Director') || userData.roles.includes('HR');
         
-        // Use provided dates or fallback to DOM values
-        const startDateValue = startDate || document.getElementById('report-start-date')?.value;
-        const endDateValue = endDate || document.getElementById('report-end-date')?.value;
+        // 1. Determine the raw date strings (Use arguments if provided, else use DOM or Defaults)
+        let startRaw = startDateInput || document.getElementById('report-start-date')?.value;
+        let endRaw = endDateInput || document.getElementById('report-end-date')?.value;
+
+        // 2. Convert to Firestore-compatible Date objects
+        // If no date is found, default to 1st of current month
+        let start = startRaw ? new Date(startRaw) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        let end = endRaw ? new Date(endRaw) : new Date();
+
+        // 3. Set time boundaries (Start of Day vs End of Day)
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        
+        console.log('Querying Firestore with:', start, end); // Debug log
+
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
 
-        const startDateObj = startDateValue ? new Date(startDateValue) : null;
-        const endDateObj = endDateValue ? new Date(endDateValue) : null;
-        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = start;
+        const endDateObj = end;
+
+        // Dynamic limit: 1000 if user provided specific dates (filtered), 50 for initial load
+        const isFiltered = startDateInput && endDateInput;
+        const queryLimit = isFiltered ? 1000 : 50;
 
         const constraints = [];
 
@@ -2752,7 +2798,7 @@ const renderClaimsReport = () => {
         if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
         if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
 
-        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+        constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
 
         const q = query(collection(db, 'claims'), ...constraints);
         
@@ -2859,7 +2905,7 @@ const renderPurchasingReport = () => {
                     // Explicitly read DOM values inside the click handler
                     const startDateValue = document.getElementById('report-start-date')?.value;
                     const endDateValue = document.getElementById('report-end-date')?.value;
-                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    console.log('Applying filter with dates:', startDateValue, endDateValue);
                     // Force fetch with the new dates as arguments
                     fetchData(startDateValue, endDateValue);
                 },
@@ -2915,7 +2961,11 @@ const renderPurchasingReport = () => {
         if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
         if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
 
-        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+        // Dynamic limit: 1000 if user provided specific dates (filtered), 50 for initial load
+        const isFiltered = startDate && endDate;
+        const queryLimit = isFiltered ? 1000 : 50;
+
+        constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
 
         const q = query(collection(db, 'purchaseRequests'), ...constraints);
         
@@ -3037,7 +3087,7 @@ const renderBillPaymentsReport = () => {
                     // Explicitly read DOM values inside the click handler
                     const startDateValue = document.getElementById('report-start-date')?.value;
                     const endDateValue = document.getElementById('report-end-date')?.value;
-                    console.log('Fetching with dates:', startDateValue, endDateValue);
+                    console.log('Applying filter with dates:', startDateValue, endDateValue);
                     // Force fetch with the new dates as arguments
                     fetchData(startDateValue, endDateValue);
                 },
@@ -3094,7 +3144,11 @@ const renderBillPaymentsReport = () => {
         if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
         if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
 
-        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+        // Dynamic limit: 1000 if user provided specific dates (filtered), 50 for initial load
+        const isFiltered = startDate && endDate;
+        const queryLimit = isFiltered ? 1000 : 50;
+
+        constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
 
         const q = query(collection(db, 'paymentRequests'), ...constraints);
         
@@ -3375,14 +3429,15 @@ const renderAnnouncementsReport = async () => {
         modal.classList.add('hidden');
     };
 
-    const fetchData = async () => {
+    const fetchData = async (startDateInput, endDateInput) => {
         dataContainer.innerHTML = `<p class="text-center p-4"><i class="fas fa-spinner fa-spin mr-2"></i>Fetching announcements...</p>`;
         
         const isDirector = userData.roles.includes('Director');
         const managedDepartments = userData.managedDepartments || [];
         const departmentFilter = document.getElementById('report-department')?.value;
-        const startDateValue = document.getElementById('report-start-date')?.value;
-        const endDateValue = document.getElementById('report-end-date')?.value;
+        // Use provided dates if available, otherwise read from DOM
+        const startDateValue = startDateInput || document.getElementById('report-start-date')?.value;
+        const endDateValue = endDateInput || document.getElementById('report-end-date')?.value;
 
         const startDateObj = startDateValue ? new Date(startDateValue) : null;
         const endDateObj = endDateValue ? new Date(endDateValue) : null;
@@ -3411,7 +3466,12 @@ const renderAnnouncementsReport = async () => {
 
         constraints.push(where('createdAt', '>=', startDateObj));
         constraints.push(where('createdAt', '<=', endDateObj));
-        constraints.push(orderBy('createdAt', 'desc'), limit(50));
+        
+        // Dynamic limit: 1000 if user provided specific dates (filtered), 50 for initial load
+        const isFiltered = startDateInput && endDateInput;
+        const queryLimit = isFiltered ? 1000 : 50;
+        
+        constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
 
         const q = query(collection(db, 'announcements'), ...constraints);
 
@@ -3466,7 +3526,14 @@ const renderAnnouncementsReport = async () => {
     renderReportFilters(filtersContainer, {
         showDateRange: true,
         showDepartment: true,
-        onApply: fetchData,
+        onApply: () => {
+            // Explicitly read DOM values inside the click handler
+            const startDateValue = document.getElementById('report-start-date')?.value;
+            const endDateValue = document.getElementById('report-end-date')?.value;
+            console.log('Applying filter with dates:', startDateValue, endDateValue);
+            // Force fetch with the new dates as arguments
+            fetchData(startDateValue, endDateValue);
+        },
         onExport: () => exportToCSV(dataForExport, 'announcements-report')
     });
 
