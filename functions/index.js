@@ -290,8 +290,9 @@ exports.getLiveTeamStatus = onCall({
         const leaveMap = new Map();
         leaveSnap.docs.forEach(doc => {
             const req = doc.data();
-            const start = moment(req.startDate).tz('Asia/Kuala_Lumpur');
-            const end = moment(req.endDate).tz('Asia/Kuala_Lumpur');
+            // FIX: Parse date string as if it's already in Asia/Kuala_Lumpur timezone to prevent date shifts
+            const start = moment.tz(req.startDate, 'Asia/Kuala_Lumpur');
+            const end = moment.tz(req.endDate, 'Asia/Kuala_Lumpur');
             if (now.isBetween(start, end, 'day', '[]')) {
                 leaveMap.set(req.userId, req);
             }
@@ -631,8 +632,9 @@ const runAttendanceCheckLogic = async () => {
         leaveSnapshot.forEach(doc => {
             const request = doc.data();
             if (request.startDate && request.endDate) {
-                const startDate = moment(request.startDate).tz('Asia/Kuala_Lumpur');
-                const endDate = moment(request.endDate).tz('Asia/Kuala_Lumpur');
+                // FIX: Parse date string as if it's already in Asia/Kuala_Lumpur timezone to prevent date shifts
+                const startDate = moment.tz(request.startDate, 'Asia/Kuala_Lumpur');
+                const endDate = moment.tz(request.endDate, 'Asia/Kuala_Lumpur');
                 if (today.isBetween(startDate, endDate, 'day', '[]')) {
                     leaveMap.set(request.userId, request);
                 }
