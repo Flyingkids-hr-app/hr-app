@@ -2602,22 +2602,20 @@ const renderLeaveReport = () => {
         let startRaw = startDateInput || document.getElementById('report-start-date')?.value;
         let endRaw = endDateInput || document.getElementById('report-end-date')?.value;
 
-        // 2. Convert to Firestore-compatible Date objects
-        // If no date is found, default to 1st of current month
-        let start = startRaw ? new Date(startRaw) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        let end = endRaw ? new Date(endRaw) : new Date();
-
-        // 3. Set time boundaries (Start of Day vs End of Day)
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
+        // 2. Prepare date strings for Firestore string comparison
+        // startDate in Firestore is stored as "YYYY-MM-DDTHH:mm" format
+        // Filter input is "YYYY-MM-DD", so we use string comparison
+        // Default to 1st of current month if no start date provided
+        const today = new Date();
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const startDateString = startRaw || startOfMonth.toISOString().split('T')[0];
+        // For end date, append "T23:59:59" to ensure we capture all times on that day
+        const endDateString = endRaw ? `${endRaw}T23:59:59` : today.toISOString().split('T')[0] + 'T23:59:59';
         
-        console.log('Querying Firestore with:', start, end); // Debug log
+        console.log('Querying Firestore with startDate:', startDateString, 'to', endDateString); // Debug log
 
         const status = document.getElementById('report-status')?.value;
         const department = document.getElementById('report-department')?.value;
-
-        const startDateObj = start;
-        const endDateObj = end;
 
         // Dynamic limit: 1000 if user provided specific dates (filtered), 50 for initial load
         const isFiltered = startDateInput && endDateInput;
@@ -2630,10 +2628,12 @@ const renderLeaveReport = () => {
         }
         if (department) constraints.push(where('department', '==', department));
         if (status) constraints.push(where('status', '==', status));
-        if (startDateObj) constraints.push(where('createdAt', '>=', startDateObj));
-        if (endDateObj) constraints.push(where('createdAt', '<=', endDateObj));
+        // Filter by startDate field (when leave actually begins) instead of createdAt
+        if (startDateString) constraints.push(where('startDate', '>=', startDateString));
+        if (endDateString) constraints.push(where('startDate', '<=', endDateString));
 
-        constraints.push(orderBy('createdAt', 'desc'), limit(queryLimit));
+        // Sort by startDate to match the inequality filter field
+        constraints.push(orderBy('startDate', 'desc'), limit(queryLimit));
 
         const q = query(collection(db, 'requests'), ...constraints);
 
