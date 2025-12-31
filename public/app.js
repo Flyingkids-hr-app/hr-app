@@ -4112,7 +4112,7 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                     <p><strong>Status:</strong> ${data.status}</p>
                     ${data.documentUrl ? `<p><strong>Document:</strong> <a href="${data.documentUrl}" target="_blank" class="text-indigo-600 hover:underline">View Document</a></p>` : ''}
                 `;
-                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}">Approve</button>`; }
+                if (isApproval && data.status === 'Pending') { footerHtml += `<button class="reject-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}" data-user-id="${data.userId}" data-type="${data.type}" data-hours="${data.hours}" data-start-date="${data.startDate}">Approve</button>`; }
                 break;
             case 'claims':
                 modalTitle.textContent = 'Expense Claim Details';
@@ -4214,6 +4214,7 @@ const handleApproveRequest = async (e) => {
     const requestUserId = button.dataset.userId;
     const requestType = button.dataset.type;
     const requestHours = parseInt(button.dataset.hours, 10);
+    const requestStartDate = button.dataset.startDate;
     if (!confirm("Are you sure you want to approve this request?")) return;
     const requestRef = doc(db, 'requests', requestId);
     const requestTypeConfig = appConfig.requestTypes.find(rt => rt.name === requestType);
@@ -4229,8 +4230,8 @@ const handleApproveRequest = async (e) => {
     try {
         if (requestTypeConfig && requestTypeConfig.hasQuota) {
             await runTransaction(db, async (transaction) => {
-                const currentYear = new Date().getFullYear();
-                const quotaRef = doc(db, 'users', requestUserId, 'leaveQuotas', String(currentYear));
+                const quotaYear = requestStartDate ? new Date(requestStartDate).getFullYear() : new Date().getFullYear();
+                const quotaRef = doc(db, 'users', requestUserId, 'leaveQuotas', String(quotaYear));
                 const quotaDoc = await transaction.get(quotaRef);
                 if (!quotaDoc.exists()) throw "Leave quota for this user has not been set for the current year.";
                 const quotaData = quotaDoc.data();
