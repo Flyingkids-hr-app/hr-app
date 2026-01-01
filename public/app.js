@@ -4083,7 +4083,8 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
     modalFooter.innerHTML = '';
     modal.classList.remove('hidden');
 
-    try {
+    // Helper function to fetch and render the request details
+    const fetchAndRenderDetails = async () => {
         const docRef = doc(db, collectionName, requestId);
         const docSnap = await getDoc(docRef);
 
@@ -4156,27 +4157,27 @@ const openRequestDetailsModal = async (requestId, collectionName, isApproval = f
                 break;
         
 case 'paymentRequests':
-                modalTitle.textContent = 'Bill Payment Details';
-                bodyHtml += `
-                    <p><strong>Submitted By:</strong> ${data.userName}</p>
-               <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
-                    <p><strong>Department:</strong> ${data.department}</p>
-                    <p><strong>Vendor Name:</strong> ${data.vendorName}</p>
-                    <p><strong>Amount Due:</strong> RM${data.amount.toFixed(2)}</p>
-                    <p><strong>Billing Date:</strong> ${formatDate(data.billingDate)}</p>
-                    <p><strong>Notes:</strong><br><span class="pl-2">${data.notes || 'N/A'}</span></p>
-                    <p><strong>Invoice:</strong> <a href="${data.invoiceUrl}" target="_blank" class="text-indigo-600 hover:underline">View Invoice</a></p>
-                    <p><strong>Status:</strong> ${data.status}</p>
-                `;
-                if (isApproval) {
-               if (data.status === 'Pending Approval') {
-                        footerHtml += `<button class="reject-payment-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-payment-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`;
-                    } else if (data.status === 'Pending Finance' && userData.roles.includes('Finance')) {
-                        footerHtml += `<button class="reject-payment-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="paid-payment-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Mark as Paid</button>`;
-                    }
-                }
-                break;
-           }
+                modalTitle.textContent = 'Bill Payment Details';
+                bodyHtml += `
+                    <p><strong>Submitted By:</strong> ${data.userName}</p>
+                <p><strong>Submitted On:</strong> ${formatDateTime(data.createdAt.toDate())}</p>
+                    <p><strong>Department:</strong> ${data.department}</p>
+                    <p><strong>Vendor Name:</strong> ${data.vendorName}</p>
+                    <p><strong>Amount Due:</strong> RM${data.amount.toFixed(2)}</p>
+                    <p><strong>Billing Date:</strong> ${formatDate(data.billingDate)}</p>
+                    <p><strong>Notes:</strong><br><span class="pl-2">${data.notes || 'N/A'}</span></p>
+                    <p><strong>Invoice:</strong> <a href="${data.invoiceUrl}" target="_blank" class="text-indigo-600 hover:underline">View Invoice</a></p>
+                    <p><strong>Status:</strong> ${data.status}</p>
+                `;
+                if (isApproval) {
+                if (data.status === 'Pending Approval') {
+                        footerHtml += `<button class="reject-payment-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="approve-payment-button bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Approve</button>`;
+                    } else if (data.status === 'Pending Finance' && userData.roles.includes('Finance')) {
+                        footerHtml += `<button class="reject-payment-button bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md ml-2" data-id="${requestId}">Reject</button><button class="paid-payment-button bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md" data-id="${requestId}">Mark as Paid</button>`;
+                    }
+                }
+                break;
+           }
 
         bodyHtml += '</div>';
         modalBody.innerHTML = bodyHtml;
@@ -4193,12 +4194,34 @@ case 'paymentRequests':
         if (document.querySelector('.process-purchase-button')) document.querySelector('.process-purchase-button').addEventListener('click', (e) => handlePurchaseUpdate(e.target.dataset.id, 'Processing', 'processedBy'));
         if (document.querySelector('.open-complete-purchase-modal-btn')) document.querySelector('.open-complete-purchase-modal-btn').addEventListener('click', () => openCompletePurchaseModal(requestId));
 if (document.querySelector('.approve-payment-button')) document.querySelector('.approve-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Pending Finance', 'approvedBy'));
-        if (document.querySelector('.reject-payment-button')) document.querySelector('.reject-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Rejected', 'processedBy'));
-        if (document.querySelector('.paid-payment-button')) document.querySelector('.paid-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Paid', 'processedBy'));
-        
+        if (document.querySelector('.reject-payment-button')) document.querySelector('.reject-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Rejected', 'processedBy'));
+        if (document.querySelector('.paid-payment-button')) document.querySelector('.paid-payment-button').addEventListener('click', (e) => handleBillPaymentUpdate(e.target.dataset.id, 'Paid', 'processedBy'));
+    };
+
+    try {
+        await fetchAndRenderDetails();
     } catch (error) {
-        console.error("Error opening request details:", error);
-        modalBody.innerHTML = 'Failed to load request details.';
+        // Check if it's a permission-denied error and we haven't retried yet
+        if (error.code === 'permission-denied' && currentUser) {
+            try {
+                console.log("Permission denied. Forcing token refresh...");
+                await getIdToken(currentUser, true); // Force refresh the token
+                // Retry the fetch after token refresh
+                await fetchAndRenderDetails();
+            } catch (retryError) {
+                // Retry failed, show detailed error
+                console.error("Error opening request details (after retry):", retryError);
+                const errorCode = retryError.code || 'unknown';
+                const errorMessage = retryError.message || 'Unknown error occurred';
+                modalBody.innerHTML = `Failed to load request details.<br><strong>Error:</strong> ${errorMessage}<br><strong>Code:</strong> ${errorCode}`;
+            }
+        } else {
+            // Not a permission error or no current user, show detailed error
+            console.error("Error opening request details:", error);
+            const errorCode = error.code || 'unknown';
+            const errorMessage = error.message || 'Unknown error occurred';
+            modalBody.innerHTML = `Failed to load request details.<br><strong>Error:</strong> ${errorMessage}<br><strong>Code:</strong> ${errorCode}`;
+        }
     }
 };
 
