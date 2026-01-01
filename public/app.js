@@ -4204,24 +4204,27 @@ if (document.querySelector('.approve-payment-button')) document.querySelector('.
         // Check if it's a permission-denied error and we haven't retried yet
         if (error.code === 'permission-denied' && currentUser) {
             try {
-                console.log("Permission denied. Forcing token refresh...");
-                await getIdToken(currentUser, true); // Force refresh the token
-                // Retry the fetch after token refresh
+                console.log("Permission denied. Pausing for backend sync...");
+                // Show temporary message while waiting for backend to sync
+                modalBody.innerHTML = '<div class="text-center p-4"><p>Syncing permissions...</p></div>';
+                // Wait 2000ms to give the backend Cloud Function time to finish
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                console.log("Forcing token refresh...");
+                await getIdToken(currentUser, true); 
+                
+                // Retry the fetch
                 await fetchAndRenderDetails();
+                return; // Exit to prevent the duplicate error alert below
             } catch (retryError) {
-                // Retry failed, show detailed error
-                console.error("Error opening request details (after retry):", retryError);
-                const errorCode = retryError.code || 'unknown';
-                const errorMessage = retryError.message || 'Unknown error occurred';
-                modalBody.innerHTML = `Failed to load request details.<br><strong>Error:</strong> ${errorMessage}<br><strong>Code:</strong> ${errorCode}`;
+                console.error("Retry failed:", retryError);
+                // Fall through to show the error
             }
-        } else {
-            // Not a permission error or no current user, show detailed error
-            console.error("Error opening request details:", error);
-            const errorCode = error.code || 'unknown';
-            const errorMessage = error.message || 'Unknown error occurred';
-            modalBody.innerHTML = `Failed to load request details.<br><strong>Error:</strong> ${errorMessage}<br><strong>Code:</strong> ${errorCode}`;
         }
+        // Not a permission error or no current user, show detailed error
+        console.error("Error opening request details:", error);
+        const errorCode = error.code || 'unknown';
+        const errorMessage = error.message || 'Unknown error occurred';
+        modalBody.innerHTML = `Failed to load request details.<br><strong>Error:</strong> ${errorMessage}<br><strong>Code:</strong> ${errorCode}`;
     }
 };
 
